@@ -111,6 +111,33 @@ function tryPlayerBomb(dtSec: number): void {
   }
 }
 
+type KillEvent = { message: string; born: number };
+const killFeed: KillEvent[] = [];
+const KILL_FEED_LIFE_SEC = 3.0;
+function pushKill(victimName: string, killerName: string | null): void {
+  const message = killerName ? `${killerName} downed ${victimName}` : `${victimName} crashed`;
+  killFeed.push({ message, born: performance.now() / 1000 });
+  while (killFeed.length > 5) killFeed.shift();
+}
+function drawKillFeed(): void {
+  const now = performance.now() / 1000;
+  let y = 30;
+  for (let i = killFeed.length - 1; i >= 0; i--) {
+    const k = killFeed[i];
+    const age = now - k.born;
+    if (age > KILL_FEED_LIFE_SEC) { killFeed.splice(i, 1); continue; }
+    const alpha = age > KILL_FEED_LIFE_SEC - 0.5 ? (KILL_FEED_LIFE_SEC - age) / 0.5 : 1;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#000a';
+    const w = ctx.measureText(k.message).width + 8;
+    ctx.fillRect(canvas.width - w - 8, y - 10, w, 14);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(k.message, canvas.width - w - 4, y);
+    y += 16;
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawHpBar(x: number, y: number, hp: number): void {
   const w = 30;
   const h = 3;
@@ -270,16 +297,19 @@ function loop(now: number): void {
     takeDamage(player, MAX_HP);
     spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
+    pushKill('You', null);
   }
   if (botC.hp > 0 && detectCrash(bot)) {
     takeDamage(botC, MAX_HP);
     spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
+    pushKill('Teal', null);
   }
   if (bot2C.hp > 0 && detectCrash(bot2)) {
     takeDamage(bot2C, MAX_HP);
     spawnExplosion(bot2.x, bot2.y, Math.cos(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
+    pushKill('Green', null);
   }
 
   const damage = resolveBulletHits(hitboxes);
@@ -290,12 +320,14 @@ function loop(now: number): void {
         addKill(score, BOT_ID);
         spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS);
         sfxExplosion();
+        pushKill('You', 'Enemy');
       }
     } else if (target === BOT_ID) {
       if (takeDamage(botC, dmg)) {
         addKill(score, PLAYER_ID);
         spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS);
         sfxExplosion();
+        pushKill('Teal', 'You');
       } else {
         notifyBotDamage(bot, plane, botMem);
       }
@@ -304,6 +336,7 @@ function loop(now: number): void {
         addKill(score, PLAYER_ID);
         spawnExplosion(bot2.x, bot2.y, Math.cos(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS);
         sfxExplosion();
+        pushKill('Green', 'You');
       } else {
         notifyBotDamage(bot2, plane, bot2Mem);
       }
@@ -338,6 +371,7 @@ function loop(now: number): void {
   drawProjectiles(ctx, bombSprite);
   drawParticles(ctx);
   drawHUD();
+  drawKillFeed();
 
   requestAnimationFrame(loop);
 }
