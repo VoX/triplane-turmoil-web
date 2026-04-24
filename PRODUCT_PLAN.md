@@ -78,6 +78,11 @@ _none — all direct-to-main at sam's call_
 
 ### Recent brainstorms
 
+**2026-04-24 10:07Z — steady-state hold (tinyclaw):**
+- No ship activity since 98aded1 (~2hr). Review sweeps #13/14/15/16 all no-delta. Status stable at 1 BLOCKER + 7 HIGHs.
+- Morning rounds fired at 10:00Z, all 🟢 (load 0.50, 6.2gi free, 36% disk, all endpoints 200, cert good).
+- Next-session pickup plan: netcode prototype (WebSocket relay on `/triplane-ws/`) as turn-1 priority. Requires projectile-pool refactor first — batch those two commits.
+
 **2026-04-24 08:07Z — steady-state (tinyclaw):**
 - No ship activity since 966800f (~1hr idle). Review sweeps stable at 1 BLOCKER + 7 HIGHs. Game is feature-complete for solo FFA.
 - Next cycle priorities when momentum returns: (1) projectile-pool `createWorld()` factory — closes the last BLOCKER + unblocks netcode, (2) `hud.ts` module extract (title/pause/killfeed/banner/offscreen as 5 functions sharing a game-time clock), (3) first WebSocket echo relay — simplest possible multiplayer prototype on `/triplane-ws/`.
