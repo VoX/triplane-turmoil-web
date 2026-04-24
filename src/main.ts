@@ -20,6 +20,10 @@ const planeGreenSprite = new Image();
 planeGreenSprite.src = './sprites/plane_green.png';
 const bombSprite = new Image();
 bombSprite.src = './sprites/bomb.png';
+const cloudSprite = new Image();
+cloudSprite.src = './sprites/cloud.png';
+const hillSprite = new Image();
+hillSprite.src = './sprites/hill.png';
 bgm.volume = 0.4;
 let bgmStarted = false;
 function startBgm(): void {
@@ -137,6 +141,27 @@ function drawPlane(p: typeof plane, sprite: HTMLImageElement, fallbackBody: stri
 
 function drawWorld(): void {
   drawBackground(ctx, plane.x, canvas.width, canvas.height);
+
+  // Overlay parallax cloud sprites (cheap, scrolls with player.x at 0.15 rate).
+  if (cloudSprite.complete && cloudSprite.naturalWidth > 0) {
+    const cloudPositions = [120, 380, 670, 950, 1280];
+    const parallax = 0.15;
+    for (const cx of cloudPositions) {
+      const sx = ((cx - plane.x * parallax) % canvas.width + canvas.width) % canvas.width;
+      ctx.drawImage(cloudSprite, sx - cloudSprite.naturalWidth / 2, 60);
+    }
+  }
+
+  // Hill silhouette (mid-parallax) just above the ground band.
+  if (hillSprite.complete && hillSprite.naturalWidth > 0) {
+    const hillW = hillSprite.naturalWidth;
+    const hillY = GROUND_Y - hillSprite.naturalHeight + 8;
+    const parallax = 0.4;
+    const offset = ((-plane.x * parallax) % hillW + hillW) % hillW;
+    for (let x = -hillW + offset; x < canvas.width; x += hillW) {
+      ctx.drawImage(hillSprite, x, hillY);
+    }
+  }
 
   ctx.fillStyle = '#3a5';
   ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
