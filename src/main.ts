@@ -368,24 +368,20 @@ function loop(now: number): void {
   for (const f of fighters) {
     if (f.combatant.hp > 0) hitboxes.push({ plane: f.plane, ownerId: f.id, radius: PLANE_HITBOX_RADIUS });
   }
-  const damage = resolveBulletHits(hitboxes);
-  for (const [target, dmg] of damage) {
+  const hits = resolveBulletHits(hitboxes);
+  for (const hit of hits) {
     sfxHit();
-    const f = fighters.find((x) => x.id === target);
-    if (!f) continue;
-    if (takeDamage(f.combatant, dmg)) {
-      // No reliable killer attribution from collision result (could derive from killBullet ownerId — TODO);
-      // For now credit the player when a bot dies, and credit "Enemy" when the player dies.
-      if (f.isHuman) {
-        pushKill(f.name, 'Enemy');
-      } else {
-        addKill(score, PLAYER_ID);
-        pushKill(f.name, 'You');
-      }
-      spawnExplosion(f.plane.x, f.plane.y, Math.cos(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS);
+    const victim = fighters.find((x) => x.id === hit.victimId);
+    if (!victim) continue;
+    if (takeDamage(victim.combatant, hit.damage)) {
+      addKill(score, hit.shooterId);
+      pushKill(victim.name, nameForId(hit.shooterId));
+      spawnExplosion(victim.plane.x, victim.plane.y, Math.cos(victim.plane.angle) * victim.plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(victim.plane.angle) * victim.plane.speed * PLANE_SPEED_TO_PXPS);
       sfxExplosion();
-    } else if (!f.isHuman && f.botMemory) {
-      notifyBotDamage(f.plane, fighters[0].plane, f.botMemory);
+    } else if (!victim.isHuman && victim.botMemory) {
+      // Evade toward the shooter, not always the player.
+      const shooter = fighters.find((x) => x.id === hit.shooterId);
+      notifyBotDamage(victim.plane, shooter ? shooter.plane : fighters[0].plane, victim.botMemory);
     }
   }
   updateParticles(dtSec);

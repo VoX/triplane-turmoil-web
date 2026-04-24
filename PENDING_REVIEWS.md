@@ -516,3 +516,48 @@ Scope: 3baf7ee (bomb splash), 26cf6ed (vfx PRNG #7), 86bc053 (cloud), 42c1704 (t
 ### LOW
 - **projectiles.ts:124-138** — Tracer mixes `stroke`+`fill` per bullet, no batching. Perf #6 already flagged.
 - **main.ts:185** — `cloudPositions` trimmed to 3 + triple-draw at ±W. Correct.
+
+## 2026-04-24 05:40Z — Security sweep #7
+
+Scope: fighters[] refactor, bot3, seedVfx wired, nearest-enemy targeting. `npm audit` = 2 moderate (vite/esbuild, carryover).
+
+### MEDIUM
+- **main.ts:49** — `seedVfx(Date.now() & 0xffffffff)` — client-controlled seed. Fine for solo, but netcode must replace with server-authoritative world-id; clock skew/tampered client → desync-exploit vector. Add TODO comment.
+- **main.ts:346-351** — killer attribution still hardcoded `'Enemy'`/`'You'`. With bot3 live, any bot→bot bullet kill credits PLAYER_ID (L349). Scoreboard inflatable by idling while bots dogfight.
+
+### LOW
+- **main.ts:239** — `pickNearestEnemy` O(N²) per-frame across all fighters; at 4p trivial but unbounded. Cache last-pick, re-poll every N ticks.
+
+### INFO
+- No new input surfaces, no network, no storage. Refactor is internal-shape only.
+
+## 2026-04-24 05:40Z — Performance sweep #7
+
+Net-new: 4th fighter (Purple, `main.ts:70`), `pickNearestEnemy` (`:239`), five `fighters[]` passes per frame (`:281,291,324,335,368`), `fighters.find` in hit path (`:341`), `nameForId` linear scan (`:235`).
+
+### HIGH
+- **main.ts:239-250** — `pickNearestEnemy` per-bot per-frame = O(N²). 4p=12 checks (~0.8 µs); 8p=56 (~4 µs); 16p=240 (~17 µs). Fine today, first quadratic in hot path. Fix: per-tick pair-distance matrix, share across AI + splash + collision.
+
+### MEDIUM
+- **main.ts:341** — `fighters.find(x=>x.id===target)` inside damage-resolve loop per bullet-hit. Add `fightersById: Map<number,Fighter>` built at roster change; O(1).
+- **main.ts:235** — `nameForId` same linear scan from 3 pushKill sites; same Map fixes it.
+- **main.ts:281,291,324,335,368** — five separate fighter passes per frame. Fuse to one sim + one render pass; 4p×5=20 iters → 8.
+
+### LOW
+- **main.ts:334** — `hitboxes[]` re-alloc per frame (#4 carryover, now 4-elem); module-scope + `length=0`.
+- **main.ts:328,352** — 4× `cos/sin*speed*PXPS` for explosion velocity; #2-#4 carryover, worse at 4p.
+
+### Frame budget (4p, ~60 bullets, bg+sprites, audio, HUD, tracers, splash)
+Sim ~110 µs (+25 for +1 fighter + O(N²) targeting), draw ~540 (+70 for 4th plane/HP/tracer/splash scale), audio ~35. Total ~685 µs = 4.1% of 16.67 ms. Comfortable; fix O(N²) before 8p. **Top 3:** fightersById Map, fuse loops, pair-distance cache. SLOs unchanged.
+
+## 2026-04-24 05:40Z — Architecture sweep #7
+
+Scope: `42c1704..6143d61` — `fighters[]` landed (de4c12c), bot3 purple (aa14b8d), nearest-enemy targeting (6143d61), vfx seed wired (7faea80).
+
+**Regression tracker**
+- WIN — P0 #1 `Fighter` entity CLOSED. `main.ts:51-76` iterates `fighters[]`; all 4 planes share one code path. Splash/crash/hits/draw loops now single passes (`main.ts:281-372`). Copy-paste tax on bot3 = one array entry. `pickNearestEnemy` (`main.ts:239`) retires "bots target player" LOW (#1). Killer `nameForId` (`main.ts:234`) dissolves sweep #5's stringly-typed HIGH — feed labels flow from `Fighter.name`. Best structural delta to date.
+- WIN — vfx seed wired at boot (`main.ts:49`), closing #6 MEDIUM.
+- BLOCKER — projectile pool singleton UNCHANGED (`projectiles.ts:47-48`). Sole remaining BLOCKER; all rollback work blocks on it. Next.
+- UNRESOLVED — sim/render fused (`main.ts:12-14`), variable dt (`:276`), bg/sfx/vfx module singletons, HUD inlined, bullet→killer attribution (`main.ts:344` TODO).
+
+**Status:** 1 BLOCKER + 4 HIGHs (was 2+6). Debt trajectory finally inverted. Ship projectile-world next, then fixed-step — netcode unblocks.

@@ -15,10 +15,19 @@ export type PlaneHitbox = {
 /** One unit of damage per bullet hit. Tune later. */
 export const BULLET_DAMAGE = 10;
 
-/** Returns ownerId → damage taken this frame. */
-export function resolveBulletHits(planes: readonly PlaneHitbox[]): Map<number, number> {
+export type HitRecord = {
+  /** planeId of the victim */
+  victimId: number;
+  /** planeId of the shooter */
+  shooterId: number;
+  damage: number;
+};
+
+/** Returns one HitRecord per bullet that connected. Preserves shooter attribution so
+ *  callers can credit kills correctly in free-for-all combat. */
+export function resolveBulletHits(planes: readonly PlaneHitbox[]): HitRecord[] {
   const bullets = getBullets();
-  const damage = new Map<number, number>();
+  const hits: HitRecord[] = [];
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     for (const p of planes) {
@@ -26,11 +35,11 @@ export function resolveBulletHits(planes: readonly PlaneHitbox[]): Map<number, n
       const dx = b.x - p.plane.x;
       const dy = b.y - p.plane.y;
       if (dx * dx + dy * dy <= p.radius * p.radius) {
-        damage.set(p.ownerId, (damage.get(p.ownerId) ?? 0) + BULLET_DAMAGE);
+        hits.push({ victimId: p.ownerId, shooterId: b.ownerId, damage: BULLET_DAMAGE });
         killBullet(i);
         break;
       }
     }
   }
-  return damage;
+  return hits;
 }
