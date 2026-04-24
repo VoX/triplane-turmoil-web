@@ -16,6 +16,8 @@ const planeRedSprite = new Image();
 planeRedSprite.src = './sprites/plane_red.png';
 const planeTealSprite = new Image();
 planeTealSprite.src = './sprites/plane_teal.png';
+const planeGreenSprite = new Image();
+planeGreenSprite.src = './sprites/plane_green.png';
 const bombSprite = new Image();
 bombSprite.src = './sprites/bomb.png';
 bgm.volume = 0.4;
@@ -34,12 +36,19 @@ const bot = createPlane(canvas.width - 100, GROUND_Y - 160, Math.PI);
 bot.speed = 3.5;
 bot.onGround = false; // explicit — bot spawns mid-air, not on tarmac
 const botMem = createBotMemory(GROUND_Y);
+const bot2 = createPlane(canvas.width - 100, GROUND_Y - 260, Math.PI);
+bot2.speed = 4.0;
+bot2.onGround = false;
+const bot2Mem = createBotMemory(GROUND_Y);
+bot2Mem.targetAltitude = GROUND_Y - 260;
 
 const PLAYER_ID = 0;
 const BOT_ID = 1;
+const BOT2_ID = 2;
 const FIRE_COOLDOWN_SEC = MG_SHOT_RATE / 60;
 const player = createCombatant(PLAYER_ID);
 const botC = createCombatant(BOT_ID);
+const bot2C = createCombatant(BOT2_ID);
 const score = createScore();
 let playerFireCooldown = 0;
 let bombDropCooldown = 0;
@@ -136,18 +145,18 @@ function drawWorld(): void {
   ctx.fillRect(0, GROUND_Y - 4, canvas.width, 4);
 }
 
-let botFireCooldown = 0;
-function tryBotFire(dtSec: number): void {
-  if (botC.hp <= 0) { botFireCooldown = 0; return; }
-  botFireCooldown = Math.max(0, botFireCooldown - dtSec);
-  if (!botMem.shouldFire) return;
-  if (botFireCooldown > 0) return;
-  const muzzleX = bot.x + Math.cos(bot.angle) * 16;
-  const muzzleY = bot.y + Math.sin(bot.angle) * 16;
-  const vx = Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS;
-  const vy = Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS;
-  if (fireMG(muzzleX, muzzleY, vx, vy, bot.angle, BOT_ID)) {
-    botFireCooldown = FIRE_COOLDOWN_SEC;
+const botFireCooldowns: Record<string, number> = { bot1: 0, bot2: 0 };
+function tryBotFire(b: typeof bot, c: typeof botC, mem: typeof botMem, key: string, dtSec: number): void {
+  if (c.hp <= 0) { botFireCooldowns[key] = 0; return; }
+  botFireCooldowns[key] = Math.max(0, botFireCooldowns[key] - dtSec);
+  if (!mem.shouldFire) return;
+  if (botFireCooldowns[key] > 0) return;
+  const muzzleX = b.x + Math.cos(b.angle) * 16;
+  const muzzleY = b.y + Math.sin(b.angle) * 16;
+  const vx = Math.cos(b.angle) * b.speed * PLANE_SPEED_TO_PXPS;
+  const vy = Math.sin(b.angle) * b.speed * PLANE_SPEED_TO_PXPS;
+  if (fireMG(muzzleX, muzzleY, vx, vy, b.angle, c.id)) {
+    botFireCooldowns[key] = FIRE_COOLDOWN_SEC;
     sfxMGShot();
   }
 }
@@ -194,14 +203,17 @@ function loop(now: number): void {
 
   stepCombatant(player, plane, dtSec, () => respawnPlane(plane, 100, GROUND_Y, 0));
   stepCombatant(botC, bot, dtSec, () => respawnPlane(bot, canvas.width - 100, GROUND_Y - 160, Math.PI));
+  stepCombatant(bot2C, bot2, dtSec, () => respawnPlane(bot2, canvas.width - 100, GROUND_Y - 260, Math.PI));
 
   if (player.hp > 0) stepPlane(plane, readInput(), dtSec, GROUND_Y);
   if (botC.hp > 0) stepPlane(bot, thinkBot(bot, plane, botMem, dtSec), dtSec, GROUND_Y);
+  if (bot2C.hp > 0) stepPlane(bot2, thinkBot(bot2, plane, bot2Mem, dtSec), dtSec, GROUND_Y);
   if (player.hp > 0) {
     tryPlayerFire(dtSec);
     tryPlayerBomb(dtSec);
   }
-  if (botC.hp > 0) tryBotFire(dtSec);
+  if (botC.hp > 0) tryBotFire(bot, botC, botMem, 'bot1', dtSec);
+  if (bot2C.hp > 0) tryBotFire(bot2, bot2C, bot2Mem, 'bot2', dtSec);
   updateProjectiles(dtSec);
 
   // Ground bombs explode.
@@ -213,6 +225,7 @@ function loop(now: number): void {
   const hitboxes: PlaneHitbox[] = [];
   if (player.hp > 0) hitboxes.push({ plane, ownerId: PLAYER_ID, radius: PLANE_HITBOX_RADIUS });
   if (botC.hp > 0) hitboxes.push({ plane: bot, ownerId: BOT_ID, radius: PLANE_HITBOX_RADIUS });
+  if (bot2C.hp > 0) hitboxes.push({ plane: bot2, ownerId: BOT2_ID, radius: PLANE_HITBOX_RADIUS });
   // Crash-on-ground
   if (player.hp > 0 && detectCrash(plane)) {
     takeDamage(player, MAX_HP);
@@ -224,6 +237,12 @@ function loop(now: number): void {
     takeDamage(botC, MAX_HP);
     addKill(score, PLAYER_ID);
     spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, 0);
+    sfxExplosion();
+  }
+  if (bot2C.hp > 0 && detectCrash(bot2)) {
+    takeDamage(bot2C, MAX_HP);
+    addKill(score, PLAYER_ID);
+    spawnExplosion(bot2.x, bot2.y, Math.cos(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
   }
 
@@ -244,6 +263,14 @@ function loop(now: number): void {
       } else {
         notifyBotDamage(bot, plane, botMem);
       }
+    } else if (target === BOT2_ID) {
+      if (takeDamage(bot2C, dmg)) {
+        addKill(score, PLAYER_ID);
+        spawnExplosion(bot2.x, bot2.y, Math.cos(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS);
+        sfxExplosion();
+      } else {
+        notifyBotDamage(bot2, plane, bot2Mem);
+      }
     }
   }
   updateParticles(dtSec);
@@ -262,6 +289,7 @@ function loop(now: number): void {
   drawWorld();
   if (player.hp > 0) drawPlane(plane, planeRedSprite, '#843', '#c94');
   if (botC.hp > 0) drawPlane(bot, planeTealSprite, '#348', '#4bc');
+  if (bot2C.hp > 0) drawPlane(bot2, planeGreenSprite, '#384', '#4c6');
   drawProjectiles(ctx, bombSprite);
   drawParticles(ctx);
   drawHUD();
