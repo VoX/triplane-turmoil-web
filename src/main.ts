@@ -1,6 +1,6 @@
 import { createPlane, stepPlane, STALL_SPEED, type PlaneInput } from './physics';
 import { createBotMemory, thinkBot, notifyBotDamage } from './bot';
-import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets } from './projectiles';
+import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets, reapGroundedBombs } from './projectiles';
 import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
 import { spawnExplosion, updateParticles, drawParticles } from './vfx';
@@ -195,6 +195,11 @@ function loop(now: number): void {
   }
   if (botC.hp > 0) tryBotFire(dtSec);
   updateProjectiles(dtSec);
+
+  // Ground bombs explode.
+  for (const hit of reapGroundedBombs(GROUND_Y)) {
+    spawnExplosion(hit.x, hit.y, 0, 0);
+  }
 
   const hitboxes: PlaneHitbox[] = [];
   if (player.hp > 0) hitboxes.push({ plane, ownerId: PLAYER_ID, radius: PLANE_HITBOX_RADIUS });

@@ -218,3 +218,22 @@ Scope: bc0b75c..c87252a (combat, audio, parallax+wire, vite-base, bot-fire, audi
 - `bot.ts:41` fire predicate sign correct. Muzzle offsets (`main.ts:69-72,122-125`) all `+16` forward, consistent with facing. Parallax scroll `-cameraX*parallax` yields correct rightward-motion illusion. No sign bugs.
 
 **Commit-msg vs diff** — all match; 270e8f1 cleanly reverts 265e647, c87252a reapplies.
+
+## 2026-04-24 03:40Z — Performance sweep #3
+
+Net-new surfaces: `vfx.ts`, `physics.ts` rewrite (variable-dt floats), `physics.test.ts`, `ai-vs-ai.test.ts`, sprite draws.
+
+### HIGH
+- **vfx.ts:23,38** — `particles.push({...})` allocates 30 objs per death + `splice(i,1)` on expire. At 2-player match w/ ~1 death/5s it's fine, but scales with N² at team/FFA. Same fix as projectiles BLOCKER: pre-alloc pool (cap 256) + swap-pop + `active` flag. **Kills GC spike at death moment (30 allocs in one frame = visible hitch on Chromebook).**
+- **physics.ts:48,144** — `Math.pow(DRAG_PER_SEC, dtSec)` every plane/frame (was called out #1 but now runs in new rewrite's hot path + unconditionally). At 8 planes × 60Hz = 480 calls/s (~100-200 ns each). Fast-path dtSec≈1/60 via precomputed `DRAG_PER_FRAME`.
+
+### MEDIUM
+- **physics.ts:117-123** — stall-drift `while` wrap on angle-diff; replace with `((d+PI)%(2*PI))-PI` branchless. Runs only when stalled but lands in same-frame determinism hot loop for tests.
+- **vfx.ts:42-43** — two `Math.pow` per particle per frame = up to 60 pow/frame at 30 particles. Use `exp(ln(k)*dt)` precomputed, or simple linear damping; difference imperceptible visually.
+- **main.ts:209,216** — duplicates `cos/sin(angle)*speed*PXPS` for velocity inheritance on death. Reuse cached kinematics (still owed from #2).
+
+### LOW
+- **vfx.ts:48-53** — per-particle `fillStyle` + `globalAlpha` writes = state thrash. Bucket by color, one alpha sort, batch draw. ~15 µs saved at 100 particles.
+
+### Frame budget update (2 planes, 30 bullets, bg, 30 particles mid-death)
+Sim ~55 µs, draw ~260 µs (+30 vfx), total ~315 µs = 1.9% of 16.67 ms. Death-frame spike: +300-500 µs GC = survivable now, hitch-risk at 8p. **Top 3:** vfx pool, drag fast-path, hitbox/Map pre-alloc (#2 carryover). SLOs unchanged.

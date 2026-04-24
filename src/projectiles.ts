@@ -139,6 +139,19 @@ export function killBomb(i: number): void {
   bombs.splice(i, 1);
 }
 
+/** Drain and return bombs that have hit or passed `groundY`. Caller spawns VFX + damage. */
+export function reapGroundedBombs(groundY: number): Array<{ x: number; y: number; ownerId: number }> {
+  const out: Array<{ x: number; y: number; ownerId: number }> = [];
+  for (let i = bombs.length - 1; i >= 0; i--) {
+    const b = bombs[i];
+    if (b.y >= groundY) {
+      out.push({ x: b.x, y: groundY, ownerId: b.ownerId });
+      bombs.splice(i, 1);
+    }
+  }
+  return out;
+}
+
 /** Read-only accessors for collision / render systems. */
 export function getBullets(): readonly Bullet[] {
   return bullets;
