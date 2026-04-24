@@ -19,6 +19,8 @@ const planeTealSprite = new Image();
 planeTealSprite.src = './sprites/plane_teal.png';
 const planeGreenSprite = new Image();
 planeGreenSprite.src = './sprites/plane_green.png';
+const planePurpleSprite = new Image();
+planePurpleSprite.src = './sprites/plane_purple.png';
 const bombSprite = new Image();
 bombSprite.src = './sprites/bomb.png';
 const cloudSprite = new Image();
@@ -39,6 +41,7 @@ const GROUND_Y = canvas.height - 30;
 const PLAYER_ID = 0;
 const BOT_ID = 1;
 const BOT2_ID = 2;
+const BOT3_ID = 3;
 const FIRE_COOLDOWN_SEC = MG_SHOT_RATE / 60;
 const BOMB_COOLDOWN_SEC = 0.5;
 
@@ -63,6 +66,12 @@ const fighters: Fighter[] = [
     spawn: { x: canvas.width - 100, y: GROUND_Y - 260, angle: Math.PI, speed: 4.0 },
     sprite: planeGreenSprite, fallbackBody: '#384', fallbackWing: '#4c6',
     isHuman: false, groundY: GROUND_Y
+  }),
+  createFighter({
+    id: BOT3_ID, name: 'Purple',
+    spawn: { x: canvas.width / 2, y: GROUND_Y - 320, angle: Math.PI / 2, speed: 4.5 },
+    sprite: planePurpleSprite, fallbackBody: '#638', fallbackWing: '#a8d',
+    isHuman: false, groundY: GROUND_Y
   })
 ];
 // Convenience handles — used by HUD code that hasn't been generalized yet.
@@ -70,6 +79,7 @@ const player = fighters[0].combatant;
 const plane = fighters[0].plane;
 fighters[1].botMemory!.targetAltitude = GROUND_Y - 160;
 fighters[2].botMemory!.targetAltitude = GROUND_Y - 260;
+fighters[3].botMemory!.targetAltitude = GROUND_Y - 320;
 const score = createScore();
 // Plane physics speed is in normalized frame-units (~6 max) but projectile
 // system expects px/s. Convert via PLANE_SPEED_TO_PXPS so muzzle velocity
