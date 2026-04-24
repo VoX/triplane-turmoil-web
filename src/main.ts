@@ -1,5 +1,5 @@
 import { createPlane, stepPlane, STALL_SPEED, type PlaneInput } from './physics';
-import { createBotMemory, thinkBot } from './bot';
+import { createBotMemory, thinkBot, notifyBotDamage } from './bot';
 import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets } from './projectiles';
 import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
@@ -188,7 +188,7 @@ function loop(now: number): void {
   stepCombatant(botC, bot, dtSec, () => respawnPlane(bot, canvas.width - 100, GROUND_Y - 160, Math.PI));
 
   if (player.hp > 0) stepPlane(plane, readInput(), dtSec, GROUND_Y);
-  if (botC.hp > 0) stepPlane(bot, thinkBot(bot, plane, botMem), dtSec, GROUND_Y);
+  if (botC.hp > 0) stepPlane(bot, thinkBot(bot, plane, botMem, dtSec), dtSec, GROUND_Y);
   if (player.hp > 0) {
     tryPlayerFire(dtSec);
     tryPlayerBomb(dtSec);
@@ -214,6 +214,8 @@ function loop(now: number): void {
         botC.respawnTimer = RESPAWN_SEC;
         score.player++;
         spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS);
+      } else {
+        notifyBotDamage(bot, plane, botMem);
       }
     }
   }
