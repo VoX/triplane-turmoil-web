@@ -3,6 +3,7 @@ import { createBotMemory, thinkBot } from './bot';
 import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets } from './projectiles';
 import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
+import { spawnExplosion, updateParticles, drawParticles } from './vfx';
 import { MG_SHOT_RATE } from './constants';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -202,17 +203,27 @@ function loop(now: number): void {
   for (const [target, dmg] of damage) {
     if (target === PLAYER_ID) {
       player.hp = Math.max(0, player.hp - dmg);
-      if (player.hp === 0) { player.respawnTimer = RESPAWN_SEC; score.bot++; }
+      if (player.hp === 0) {
+        player.respawnTimer = RESPAWN_SEC;
+        score.bot++;
+        spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS);
+      }
     } else if (target === BOT_ID) {
       botC.hp = Math.max(0, botC.hp - dmg);
-      if (botC.hp === 0) { botC.respawnTimer = RESPAWN_SEC; score.player++; }
+      if (botC.hp === 0) {
+        botC.respawnTimer = RESPAWN_SEC;
+        score.player++;
+        spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS);
+      }
     }
   }
+  updateParticles(dtSec);
 
   drawWorld();
   if (player.hp > 0) drawPlane(plane, planeRedSprite, '#843', '#c94');
   if (botC.hp > 0) drawPlane(bot, planeTealSprite, '#348', '#4bc');
   drawProjectiles(ctx);
+  drawParticles(ctx);
   drawHUD();
 
   requestAnimationFrame(loop);
