@@ -1,10 +1,14 @@
 import { createPlane, stepPlane, STALL_SPEED, type PlaneInput } from './physics';
+import { createBotMemory, thinkBot } from './bot';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 
 const GROUND_Y = canvas.height - 30;
 const plane = createPlane(100, GROUND_Y, 0);
+const bot = createPlane(canvas.width - 100, GROUND_Y - 160, Math.PI);
+bot.speed = 3.5;
+const botMem = createBotMemory(GROUND_Y);
 
 const keys = new Set<string>();
 addEventListener('keydown', (e) => keys.add(e.key));
@@ -18,16 +22,16 @@ function readInput(): PlaneInput {
   };
 }
 
-function drawPlane(): void {
+function drawPlane(p: typeof plane, bodyColor: string, wingColor: string): void {
   ctx.save();
-  ctx.translate(plane.x, plane.y);
-  ctx.rotate(plane.angle);
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.angle);
 
-  ctx.fillStyle = '#c94';
+  ctx.fillStyle = wingColor;
   ctx.fillRect(-14, -2, 28, 4);
-  ctx.fillStyle = '#843';
+  ctx.fillStyle = bodyColor;
   ctx.fillRect(-10, -7, 12, 14);
-  ctx.fillStyle = '#b84';
+  ctx.fillStyle = wingColor;
   ctx.fillRect(-2, -5, 4, 10);
   ctx.fillStyle = '#555';
   ctx.fillRect(14, -1, 3, 2);
@@ -64,9 +68,11 @@ function loop(now: number): void {
   last = now;
 
   stepPlane(plane, readInput(), dt, GROUND_Y);
+  stepPlane(bot, thinkBot(bot, plane, botMem), dt, GROUND_Y);
 
   drawWorld();
-  drawPlane();
+  drawPlane(plane, '#843', '#c94');
+  drawPlane(bot, '#348', '#4bc');
   drawHUD();
 
   requestAnimationFrame(loop);
