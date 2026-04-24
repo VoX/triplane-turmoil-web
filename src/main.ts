@@ -178,6 +178,45 @@ function drawBanner(): void {
   ctx.restore();
   ctx.font = '10px monospace';
 }
+function drawOffScreenIndicators(): void {
+  // For each enemy that's off-canvas or faded at edge, draw a triangle arrow
+  // at the screen-edge projection pointing toward them.
+  for (const f of fighters) {
+    if (f.isHuman || f.combatant.hp <= 0) continue;
+    const x = f.plane.x;
+    const y = f.plane.y;
+    const inView = x >= 0 && x <= canvas.width && y >= 0 && y <= canvas.height;
+    if (inView) continue;
+    // Angle from center of canvas toward enemy.
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const dx = x - cx;
+    const dy = y - cy;
+    const ang = Math.atan2(dy, dx);
+    // Clamp to a small border inset so arrow is visible.
+    const pad = 20;
+    const hx = (canvas.width / 2) - pad;
+    const hy = (canvas.height / 2) - pad;
+    const t = Math.min(hx / Math.abs(Math.cos(ang) || 1e-6), hy / Math.abs(Math.sin(ang) || 1e-6));
+    const sx = cx + Math.cos(ang) * t;
+    const sy = cy + Math.sin(ang) * t;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(ang);
+    ctx.fillStyle = f.fallbackWing;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-10, -5);
+    ctx.lineTo(-10, 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#000a';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 function drawKillFeed(): void {
   const now = performance.now() / 1000;
   let y = 30;
@@ -449,6 +488,7 @@ function loop(now: number): void {
   drawWind(ctx, canvas.width, canvas.height, plane.x);
   drawProjectiles(ctx, bombSprite);
   drawParticles(ctx);
+  drawOffScreenIndicators();
   drawHUD();
   drawKillFeed();
   drawBanner();
