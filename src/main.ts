@@ -2,6 +2,7 @@ import { createPlane, stepPlane, STALL_SPEED, type PlaneInput } from './physics'
 import { createBotMemory, thinkBot } from './bot';
 import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets } from './projectiles';
 import { resolveBulletHits, type PlaneHitbox } from './collision';
+import { drawBackground } from './background';
 import { MG_SHOT_RATE } from './constants';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -104,8 +105,7 @@ function drawPlane(p: typeof plane, bodyColor: string, wingColor: string): void 
 }
 
 function drawWorld(): void {
-  ctx.fillStyle = '#5a8fc9';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawBackground(ctx, plane.x, canvas.width, canvas.height);
 
   ctx.fillStyle = '#3a5';
   ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
