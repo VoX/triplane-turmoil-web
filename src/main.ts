@@ -169,15 +169,15 @@ function drawHUD(): void {
 
 let last = performance.now();
 function loop(now: number): void {
-  const dt = Math.min(32, now - last) / 16.666;
+  const rawDt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  const dtSec = rawDt;
 
-  const dtSec = dt / 60;
   stepCombatant(player, plane, dtSec, () => respawnPlane(plane, 100, GROUND_Y, 0));
   stepCombatant(botC, bot, dtSec, () => respawnPlane(bot, canvas.width - 100, GROUND_Y - 160, Math.PI));
 
-  if (player.hp > 0) stepPlane(plane, readInput(), dt, GROUND_Y);
-  if (botC.hp > 0) stepPlane(bot, thinkBot(bot, plane, botMem), dt, GROUND_Y);
+  if (player.hp > 0) stepPlane(plane, readInput(), dtSec, GROUND_Y);
+  if (botC.hp > 0) stepPlane(bot, thinkBot(bot, plane, botMem), dtSec, GROUND_Y);
   if (player.hp > 0) {
     tryPlayerFire(dtSec);
     tryPlayerBomb(dtSec);
