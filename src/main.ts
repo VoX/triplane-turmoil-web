@@ -40,7 +40,15 @@ addEventListener('keydown', () => { startBgm(); resumeAudio(); titleVisible = fa
 addEventListener('pointerdown', () => { startBgm(); resumeAudio(); titleVisible = false; });
 
 let paused = false;
-addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'p') paused = !paused; });
+addEventListener('keydown', (e) => {
+  // ESC on title screen just hides title, doesn't enter pause.
+  if (titleVisible) return;
+  if (e.key === 'Escape' || e.key === 'p') paused = !paused;
+});
+
+// Game-time clock that stops when paused, so kill-feed/banner TTLs don't burn
+// while looking at pause overlay.
+let gameTime = 0;
 
 const GROUND_Y = canvas.height - 30;
 const PLAYER_ID = 0;
@@ -146,21 +154,20 @@ const MULTI_KILL_WINDOW_SEC = 4.0;
 let bannerMessage: { text: string; born: number } | null = null;
 function pushKill(victimName: string, killerName: string | null): void {
   const message = killerName ? `${killerName} downed ${victimName}` : `${victimName} crashed`;
-  killFeed.push({ message, born: performance.now() / 1000 });
+  killFeed.push({ message, born: gameTime });
   while (killFeed.length > 5) killFeed.shift();
   if (killerName === 'You') {
-    const now = performance.now() / 1000;
-    playerKillTimes = playerKillTimes.filter((t) => now - t < MULTI_KILL_WINDOW_SEC);
-    playerKillTimes.push(now);
+    playerKillTimes = playerKillTimes.filter((t) => gameTime - t < MULTI_KILL_WINDOW_SEC);
+    playerKillTimes.push(gameTime);
     const n = playerKillTimes.length;
     const banner = n === 2 ? 'DOUBLE KILL!' : n === 3 ? 'TRIPLE KILL!' : n >= 4 ? 'RAMPAGE!' : null;
-    if (banner) bannerMessage = { text: banner, born: now };
+    if (banner) bannerMessage = { text: banner, born: gameTime };
   }
 }
 
 function drawBanner(): void {
   if (!bannerMessage) return;
-  const age = performance.now() / 1000 - bannerMessage.born;
+  const age = gameTime - bannerMessage.born;
   if (age > 2.0) { bannerMessage = null; return; }
   const alpha = age > 1.5 ? (2.0 - age) / 0.5 : 1;
   ctx.save();
@@ -193,8 +200,8 @@ function drawOffScreenIndicators(): void {
     const dx = x - cx;
     const dy = y - cy;
     const ang = Math.atan2(dy, dx);
-    // Clamp to a small border inset so arrow is visible.
-    const pad = 20;
+    // Park arrow near the edge (4 px inset, not 20).
+    const pad = 4;
     const hx = (canvas.width / 2) - pad;
     const hy = (canvas.height / 2) - pad;
     const t = Math.min(hx / Math.abs(Math.cos(ang) || 1e-6), hy / Math.abs(Math.sin(ang) || 1e-6));
@@ -218,7 +225,7 @@ function drawOffScreenIndicators(): void {
 }
 
 function drawKillFeed(): void {
-  const now = performance.now() / 1000;
+  const now = gameTime;
   let y = 30;
   for (let i = killFeed.length - 1; i >= 0; i--) {
     const k = killFeed[i];
@@ -340,7 +347,8 @@ function drawHUD(): void {
   ctx.fillStyle = player.hp > 50 ? '#7f7' : player.hp > 20 ? '#fc4' : '#f55';
   ctx.fillText(`hp ${player.hp}`, 10, 62);
   ctx.fillStyle = '#fff';
-  ctx.fillText(`score  you ${score.kills.get(PLAYER_ID) ?? 0} : ${score.kills.get(BOT_ID) ?? 0} bot`, canvas.width - 160, 14);
+  const totalBotKills = (score.kills.get(BOT_ID) ?? 0) + (score.kills.get(BOT2_ID) ?? 0) + (score.kills.get(BOT3_ID) ?? 0);
+  ctx.fillText(`score  you ${score.kills.get(PLAYER_ID) ?? 0} : ${totalBotKills} bots`, canvas.width - 160, 14);
   if (player.hp <= 0) {
     ctx.fillStyle = '#f55';
     ctx.fillText(`respawn in ${player.respawnTimer.toFixed(1)}s`, canvas.width / 2 - 40, canvas.height / 2);
@@ -388,6 +396,7 @@ function loop(now: number): void {
   const rawDt = paused ? 0 : Math.min(0.1, (now - last) / 1000);
   last = now;
   const dtSec = rawDt;
+  gameTime += dtSec;
 
   // Tick respawns + sim per fighter.
   for (const f of fighters) {
