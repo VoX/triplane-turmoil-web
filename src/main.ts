@@ -114,6 +114,20 @@ function drawWorld(): void {
   ctx.fillRect(0, GROUND_Y - 4, canvas.width, 4);
 }
 
+let botFireCooldown = 0;
+function tryBotFire(dtSec: number): void {
+  botFireCooldown = Math.max(0, botFireCooldown - dtSec);
+  if (!botMem.shouldFire) return;
+  if (botFireCooldown > 0) return;
+  const muzzleX = bot.x + Math.cos(bot.angle) * 16;
+  const muzzleY = bot.y + Math.sin(bot.angle) * 16;
+  const vx = Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS;
+  const vy = Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS;
+  if (fireMG(muzzleX, muzzleY, vx, vy, bot.angle, BOT_ID)) {
+    botFireCooldown = FIRE_COOLDOWN_SEC;
+  }
+}
+
 function stepCombatant(c: Combatant, _p: typeof plane, dtSec: number, respawn: () => void): void {
   if (c.hp > 0) return;
   c.respawnTimer -= dtSec;
@@ -168,6 +182,7 @@ function loop(now: number): void {
     tryPlayerFire(dtSec);
     tryPlayerBomb(dtSec);
   }
+  if (botC.hp > 0) tryBotFire(dtSec);
   updateProjectiles(dtSec);
 
   const hitboxes: PlaneHitbox[] = [];
