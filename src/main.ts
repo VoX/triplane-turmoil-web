@@ -5,6 +5,7 @@ import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
 import { spawnExplosion, updateParticles, drawParticles, seedVfx } from './vfx';
 import { seedWind, updateWind, drawWind } from './wind';
+import { updateTrails, drawTrails } from './trails';
 import { initAudio, resumeAudio, sfxMGShot, sfxBombDrop, sfxExplosion, sfxHit, sfxEngine, stopEngine } from './sfx';
 import { takeDamage, tickRespawn, detectCrash, addKill, createScore, MAX_HP, PLANE_HITBOX_RADIUS } from './combat';
 import { createFighter, respawnFighter, type Fighter } from './entity';
@@ -485,6 +486,7 @@ function loop(now: number): void {
   }
   updateParticles(dtSec);
   updateWind(dtSec);
+  updateTrails(fighters, dtSec);
 
   // Engine sfx follows the player plane.
   if (player.hp > 0 && !plane.onGround) {
@@ -500,6 +502,7 @@ function loop(now: number): void {
     drawHpBar(f.plane.x, f.plane.y - 26, f.combatant.hp);
   }
   drawWind(ctx, canvas.width, canvas.height, plane.x);
+  drawTrails(ctx, fighters);
   drawProjectiles(ctx, bombSprite);
   drawParticles(ctx);
   drawOffScreenIndicators();

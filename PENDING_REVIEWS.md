@@ -564,15 +564,86 @@ Scope: `42c1704..6143d61` — `fighters[]` landed (de4c12c), bot3 purple (aa14b8
 
 ## 2026-04-24 05:40Z — Delta correctness sweep #7
 
-Scope: de4c12c (fighters[]), 7faea80 (seedVfx), aa14b8d (bot3), 6143d61 (nearest-enemy).
+Scope: de4c12c, 7faea80, aa14b8d, 6143d61.
 
 ### HIGH
-- **main.ts:388** — `notifyBotDamage(f.plane, fighters[0].plane, f.botMemory)` still hardcodes the **player** as the evade reference. thinkBot now re-targets nearest (`:317`), but a bot shot by another bot evades perpendicular to the player, not its attacker — movement contradicts targeting. Regression of 6143d61's intent. Plumb the shooter via `resolveBulletHits` damage tuple (or look up via last-hit bullet) and pass its plane here.
-- **main.ts:382** — `addKill(score, PLAYER_ID)` on every non-human death regardless of shooter. With bot3 live and bots crossfire-ing, idle spectating farms your scoreboard. Matches the `:377` TODO; flagged as correctness because the score is now observably wrong in 4p.
+- **main.ts:388** — `notifyBotDamage(f.plane, fighters[0].plane, ...)` hardcodes player as evade reference. thinkBot now targets nearest (`:317`), but a bot shot by another bot evades perpendicular to **the player**, not its attacker — movement contradicts targeting. Regression of 6143d61's intent. Plumb shooter plane via `resolveBulletHits` damage tuple.
+- **main.ts:382** — `addKill(score, PLAYER_ID)` on every non-human death regardless of shooter. Bot-vs-bot crossfire farms your scoreboard while idle. `:377` TODO acknowledges it; flagging as correctness because score is now observably wrong in 4p.
 
 ### MEDIUM
-- **main.ts:350** — Bomb splash `pushKill(f.name, nameForId(hit.ownerId))` lacks a self-kill gate. Own-bomb suicide renders "You downed You" in feed; `addKill` is correctly skipped at `:349` but text isn't. Pass `null` killer when `hit.ownerId===f.id`.
-- **main.ts:317** — `pickNearestEnemy` returns `null` when a bot is last-alive; fallthrough feeds `readInput()` into that bot's plane — it starts reading the human's keys. Latent today, fires on any round-end.
+- **main.ts:350** — Bomb splash `pushKill(f.name, nameForId(hit.ownerId))` has no self-kill gate. Own-bomb suicide prints "You downed You"; `addKill` is correctly skipped at `:349` but feed text isn't. Pass `null` when `hit.ownerId===f.id`.
+- **main.ts:317** — `pickNearestEnemy` returns `null` when a bot is last-alive; fallthrough feeds `readInput()` into that bot — keyboard hijack. Latent today, fires on round-end.
 
 ### LOW
-- **main.ts:80-82** — `botMemory!` + post-construct `targetAltitude` writes; fold `spawnAltitude` into `CreateFighterOpts` so construction is atomic.
+- **main.ts:80-82** — `botMemory!` + post-construct `targetAltitude` writes; fold `spawnAltitude` into `CreateFighterOpts`.
+
+## 2026-04-24 06:05Z — Security sweep #8
+
+Scope: 6c1b91f (shooter-ID), 3d44d5e (lone-bot), 7d5d522+b6163ec (wind), 410d422 (title/pause), b9c7f22 (indicators), dee5e65 (multi-kill). `npm audit` = 2 moderate, carryover.
+
+### MEDIUM
+- **main.ts:55** — `seedWind(Date.now() ^ 0xa7b3c5d1, 400)` — second client-clock seed. Same netcode-desync/tamper vector as vfx #7; replace with server world-id.
+- **wind.ts:58,64** — `seedWind`/`setWindStrength` exported, no input validation. `Infinity`/`NaN` seed → RNG undefined; untrusted peer could force visual desync. Coerce + clamp.
+
+### LOW
+- **main.ts:43** — `keydown` toggles `paused` with no focus guard; iframe embeds can pause from parent-page key events. Minor.
+- **main.ts:156** — `playerKillTimes` unbounded within window; adversarial kill-spam (bot crossfire farms) could grow array. Cap length.
+
+### INFO
+- No new network/storage/DOM-injection surfaces. Title/pause + indicators pure-canvas.
+
+## 2026-04-24 06:05Z — Performance sweep #8
+
+Net-new: `wind.ts` streaks, off-screen indicators, title/pause/banner overlays.
+
+### HIGH
+- **wind.ts:104-115** — 60 per-streak `beginPath`/`moveTo`/`lineTo`/`stroke` + `globalAlpha` write. ~120-180 µs/frame, same pattern as tracer HIGH #6. Batch by alpha bucket, one path+stroke per bucket.
+- **main.ts:386-498** — pause redraws full scene every RAF (dt=0 but all draw calls run). ~500 µs wasted. Skip `drawWorld`/sim when paused; draw overlay over cached frame or gate RAF.
+
+### MEDIUM
+- **main.ts:181-218** — off-screen arrows: per-enemy `atan2`+2×`cos`+2×`sin`+`save/translate/rotate/restore`+path+stroke+fill. 3 bots × ~10 µs = 30 µs. Cache trig from targeting loop.
+- **main.ts:173,230** — banner `measureText` + kill-feed `measureText` every frame; cache width at push.
+- **main.ts:168,179,332,358,361,364,367,377,379,382** — font-string thrash (10px ↔ bold 28px ↔ 12px) invalidates Canvas2D font cache each swap. Set font once per HUD pass.
+
+### LOW
+- **wind.ts:77-81** — branchy wrap in hot loop; `s.x -= STREAK_WORLD_W * Math.floor(s.x/STREAK_WORLD_W)` or clamp.
+
+### Frame budget (4p, overlays, wind on)
+Sim ~110, draw ~710 (+150 wind, +30 arrows, +20 banner/overlay font), audio ~35. ~855 µs = 5.1%. Paused = same cost, dt zero. **Top 3:** batch wind strokes, skip draw when paused, cache banner/feed widths. SLOs unchanged.
+
+## 2026-04-24 06:05Z — Delta correctness sweep #8
+
+Scope: 6143d61, dee5e65, 6c1b91f, 7d5d522, b6163ec, 3d44d5e, 410d422, b9c7f22.
+
+### HIGH
+- **main.ts:39-43** — title dismiss + pause share one keydown. Esc on title clears `titleVisible` AND flips `paused=true`; game boots paused. Gate pause on `!titleVisible`.
+- **main.ts:149,163,225** — kill-feed/banner age + fade all read `performance.now()/1000`, which ticks through pause (410d422's `dtSec` claim is moot; these ignore `dtSec`). Long pause wipes feed + banner. Drive from accumulated `rawDt`.
+
+### MEDIUM
+- **main.ts:198-202** — off-screen arrows clamp to half-extent minus 20 px; they park inside viewport, not the edge the commit promised. Intersect ray against real edge rects.
+- **collision.ts:28 / main.ts:452-471** — `hitboxes[]` pre-loop snapshot; kill-bullet A leaves victim collidable for bullet B same frame → duplicate `sfxHit` + explosion. Credit stays clean but feedback doesn't. Filter `hp>0` inside hit loop.
+- **main.ts:343** — HUD score hardcodes `PLAYER_ID`/`BOT_ID`; green + purple kills invisible since fighters[] refactor.
+
+### LOW
+- **main.ts:404** — lone-survivor cruise drops throttle at `speed ≥ STALL+1`; bot can stall at apex. Min-throttle unconditionally.
+- **main.ts:459,468** — two more `fighters.find` per hit; `fightersById` Map (MED #7) covers these.
+
+## 2026-04-24 06:05Z — Architecture sweep #8
+
+Scope: `6143d61..b9c7f22` — HitRecord[], multi-kill banners, wind module+wire, title/pause, lone-bot idle, off-screen indicators.
+
+**Tracker**
+- WIN — `HitRecord{victim,shooter,damage}` (`collision.ts:18-44`) closes #7 shooter-evade + bot-vs-bot scoreboard inflation. Best correctness delta since fighters[].
+- WIN — `pickNearestEnemy→null` keyboard-hijack fixed via idle-cruise fallback (`main.ts:402-404`).
+- UNRESOLVED — projectile-pool BLOCKER (`projectiles.ts:47-48`) untouched; rollback gated.
+- UNRESOLVED — sim/render fused, variable-dt. `main.ts` 395→500 LoC (+27%).
+
+**New HIGH — `wind.ts` = singleton #6.** Module-scope `rng`/`strength`/`streaks`; mirrors vfx/bg/sfx/projectiles/HUD. Scaffold `createWind(seed)` before `applyWind(fighter, dt)` lands.
+
+**New HIGH — UX state inlined.** Title/pause/banner/multikill (`main.ts:38,42,141-180`) = 5th HUD subsystem on raw `addEventListener`. Fold into owed `hud.ts`/`ui.ts` before menu/lobby.
+
+**New MEDIUM — indicators read DOM canvas** (`:188-202`). Viewport-as-param for split-screen/server-render.
+
+**New MEDIUM — multi-kill leaks cross-match.** `playerKillTimes`/`bannerMessage` never reset on respawn; `pushKill` string-matches `'You'` not `shooterId===PLAYER_ID` — regresses 6c1b91f.
+
+**Status:** 1 BLOCKER + 6 HIGHs (was 1+4). Ship `ProjectileWorld` + `hud.ts`/`ui.ts` next.
