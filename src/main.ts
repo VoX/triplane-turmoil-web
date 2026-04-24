@@ -281,10 +281,26 @@ function loop(now: number): void {
   if (bot2C.hp > 0) tryBotFire(bot2, bot2C, bot2Mem, 'bot2', dtSec);
   updateProjectiles(dtSec);
 
-  // Ground bombs explode.
+  // Ground bombs explode + splash damage to nearby planes.
+  const BOMB_BLAST_RADIUS = 60;
+  const BOMB_DAMAGE = 60;
   for (const hit of reapGroundedBombs(GROUND_Y)) {
     spawnExplosion(hit.x, hit.y, 0, 0);
     sfxExplosion();
+    for (const h of [{ p: plane, c: player, name: 'You' }, { p: bot, c: botC, name: 'Teal' }, { p: bot2, c: bot2C, name: 'Green' }]) {
+      if (h.c.hp <= 0) continue;
+      const dx = h.p.x - hit.x;
+      const dy = h.p.y - hit.y;
+      if (dx * dx + dy * dy <= BOMB_BLAST_RADIUS * BOMB_BLAST_RADIUS) {
+        const died = takeDamage(h.c, BOMB_DAMAGE);
+        sfxHit();
+        if (died) {
+          spawnExplosion(h.p.x, h.p.y, 0, 0);
+          sfxExplosion();
+          pushKill(h.name, hit.ownerId === PLAYER_ID ? 'You' : hit.ownerId === BOT_ID ? 'Teal' : 'Green');
+        }
+      }
+    }
   }
 
   const hitboxes: PlaneHitbox[] = [];
