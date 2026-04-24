@@ -96,9 +96,18 @@ function tryPlayerBomb(dtSec: number): void {
 }
 
 function drawPlane(p: typeof plane, sprite: HTMLImageElement, fallbackBody: string, fallbackWing: string): void {
+  // Flip sprite vertically when flying left-half so the pilot stays upright.
+  // cos(angle) < 0 means nose pointing left; mirror the sprite and flip the
+  // rotation so the biplane reads correctly (classic 2D "left-right-flip").
+  const facingLeft = Math.cos(p.angle) < 0;
   ctx.save();
   ctx.translate(p.x, p.y);
-  ctx.rotate(p.angle);
+  if (facingLeft) {
+    ctx.rotate(Math.PI - p.angle);
+    ctx.scale(-1, 1);
+  } else {
+    ctx.rotate(p.angle);
+  }
   if (sprite.complete && sprite.naturalWidth > 0) {
     ctx.drawImage(sprite, -sprite.naturalWidth / 2, -sprite.naturalHeight / 2);
   } else {
