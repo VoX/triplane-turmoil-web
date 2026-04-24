@@ -6,6 +6,15 @@ import { MG_SHOT_RATE } from './constants';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
+const bgm = document.getElementById('bgm') as HTMLAudioElement;
+bgm.volume = 0.4;
+let bgmStarted = false;
+function startBgm(): void {
+  if (bgmStarted) return;
+  bgm.play().then(() => { bgmStarted = true; }).catch(() => {});
+}
+addEventListener('keydown', startBgm, { once: true });
+addEventListener('pointerdown', startBgm, { once: true });
 
 const GROUND_Y = canvas.height - 30;
 const plane = createPlane(100, GROUND_Y, 0);
