@@ -303,3 +303,82 @@ Scope: `1bb609e..74a3c2b` — physics rewrite, vfx, sprites, bot v2, vitest.
 ### LOW
 - **physics.ts:114** — "radians per tick" stale; STALL_DRIFT bakes dtSec·TICK_HZ.
 - **74a3c2b msg** — claims stale `.js` fixed; 10 still on disk per Security #3. `rm` not run.
+
+## 2026-04-24 04:05Z — Security sweep #4
+
+Scope delta: `sfx.ts` (WebAudio), `combat.ts`, `main.ts` bot2, 4 new sprite PNGs.
+
+**WebAudio / DoS**
+- MEDIUM — `sfx.ts:110-115` `sfxExplosion` has **no throttle** (MG/hit do) and allocs 3 nodes/call. Simultaneous deaths in 4p FFA / netcode can burst toward Chrome's ~1000-voice ceiling and throw. Add ~80ms throttle + voice cap.
+- LOW — `sfx.ts:40` noise buffer seeded once via `Math.random()`, reused forever. Wall off from any future gameplay RNG so buffer bytes can't leak into damage rolls.
+- LOW — `sfx.ts:26-33` `initAudio` fires on any keydown/pointerdown; iframe-embed lets hostile parent spoof via synthetic events. Single-instance `AudioContext` caps damage — keep it.
+
+**combat.ts**
+- INFO — pure state; `Map<number,number>` numeric-keyed, safe from `__proto__` pollution.
+
+**bot2**
+- LOW — `main.ts:173` `botFireCooldowns: Record<string,number>` on string literals. Swap to `Map<number,number>` on `ownerId` to match combat.ts and pre-empt prototype-key risk.
+
+**Sprites**
+- INFO — 4 new PNGs verified 8-bit RGBA, 381B-1843B, no metadata chunks. Relative `./sprites/…` load issue from #2/#3 still applies across all 6.
+
+**Deps**
+- INFO — `npm audit --omit=dev` → 0 vulns. Unchanged.
+
+## 2026-04-24 04:05Z — Architecture sweep #4
+
+Scope: `74a3c2b..d6055b5` (combat.ts extracted, sfx.ts added, bot2 inlined, bomb/cloud/hill sprites).
+
+**Regression tracker**
+- PROGRESS — #2 BLOCKER combat-fused partially addressed. `combat.ts` owns HP/respawn/score/crash as pure functions. `main.ts:229-300` still orchestrates (mutates Combatants + spawns VFX/sfx inline) but the *rules* are extractable. Net win.
+- UNRESOLVED — #1 BLOCKER projectile-pool singleton untouched (`projectiles.ts:47-48`).
+- REGRESSION — "bot is singleton" copy-pasted into `bot2`. `main.ts:43-47,51,55,173` — parallel `bot2/bot2Mem/bot2C/BOT2_ID` + `botFireCooldowns: Record<string,number>` keyed on magic strings. Sweep #3 MEDIUM predicted this; the 2nd bot forced duplication, not a fix. Three-plane paths (`main.ts:229-300`) are now three near-identical blocks.
+- REGRESSION — `sfx.ts:14-20` new module-scope singleton (ctx/masterGain/throttle/engine state). Four singletons now (projectiles, background, vfx, sfx) to thread through server/rollback.
+
+**New HIGH — combatant/plane/mem/id sprawl.** 4 parallel bindings per player. `Entity { id, plane, combatant, memory?, sprite }` + `entities[]` collapses the three-block pile into single passes. Blocks M2 FFA.
+
+**New MEDIUM — `Record<string,number>` cooldowns** (`main.ts:173`). String-keyed; belongs on Combatant/Entity by numeric id.
+
+**LOW — `stepCombatant` unused `_p`** (`main.ts:189`) — carried from #2/#3.
+
+**Status:** 2 BLOCKERs + 5 HIGHs. Combat extraction was right; feature velocity (bot2, sprites, sfx) outpaces debt paydown. Pause new planes until entities array + projectile world land, or FFA is a rewrite.
+
+## 2026-04-24 04:05Z — Performance sweep #4
+
+Net-new: sfx oscillators, bot2, cloud/hill sprites, bomb rotation.
+
+### HIGH
+- **sfx.ts:95-102,118-123** — every MG shot allocs 4 fresh nodes (BufferSource+BiquadFilter+GainNode+Oscillator). 2 shooters × ~28 shots/s = ~224 node allocs/s + graph-teardown GC. Scales with N bots. Pre-build a 16-voice ring, retrigger. **Kills graph churn + ~50 µs/shot.**
+- **main.ts:250-253** — `hitboxes: []` allocated per frame; 3 planes × 60Hz = 180 pushes/s + GC. Pre-alloc module-scope, `length=0`/reuse.
+
+### MEDIUM
+- **projectiles.ts:134-139** — bomb draw: `atan2`+`save/translate/rotate/restore` per bomb per frame. ~8 µs × MAX_BOMBS=8 = ~64 µs. Cache angle in `updateProjectiles`.
+- **main.ts:143-164** — cloud+hill sprite loops run on top of `background.ts`'s gradient+shape layer. Two backdrop systems = ~200 µs overdraw. Pick one.
+- **main.ts:173** — `botFireCooldowns` string-keyed `Record`; per-frame hash lookup. Move to `Map<number,number>` on ownerId (also fixes Sec/Arch LOW).
+
+### LOW
+- **main.ts:258-294** — six sites recompute `cos/sin*speed*PXPS` for explosion inheritance; #2/#3 carryover, worse with bot2.
+- **sfx.ts:40** — 22050-sample `Math.random()` fill in `initAudio` = ~200 µs first-gesture jank. Lazy-fill in idle callback.
+
+### Frame budget (3 planes, ~45 bullets, bg+sprites, audio)
+Sim ~80 µs (+25 bot2), draw ~340 µs (+60 bomb-rotate, +20 sprite double-draw), audio ~30 µs fire-spikes. Total ~450 µs = 2.7% of 16.67 ms. Death-frame +600 µs. Chromebook hitch-risk growing. **Top 3:** sfx voice pool, hitbox pre-alloc, pick one bg system. SLOs unchanged.
+
+## 2026-04-24 04:05Z — Delta correctness sweep #4
+
+Scope: `ef8165f..d6055b5` — sfx, crash, combat extract, bomb/green/cloud/hill sprites, bot2.
+
+### HIGH
+- **main.ts:279,285,293 — bot2 kills unrecorded.** Damage path hard-codes `addKill(score, BOT_ID)`/`PLAYER_ID`; `resolveBulletHits` returns victim→dmg only, no killer. Bot2 kills never enter `score.kills`; bot1-vs-bot2 crossfire credits the player. HUD reads BOT_ID only — bot2 stats invisible. Fix: return killer ownerId from collision.
+- **main.ts:308-312 — `sfxEngine` schedules 60 ramps/sec.** `linearRampToValueAtTime` every frame piles automation events on one Gain+Osc timeline unboundedly → CPU creep over a long match. Gate on throttle delta > 0.02 or ~100ms.
+- **main.ts:147-152 — cloud parallax pops.** `drawImage` at `sx - 32` draws one copy; sx crossing 0/640 vanishes the cloud instead of wrapping. Draw twice (`sx` and `sx ± canvas.width`).
+
+### MEDIUM
+- **main.ts:255-278 — same-frame crash+bullet race.** Crash sets hp=0; bullet block then `takeDamage`s a dead victim. Early-return saves it; `addKill` would double-credit without the guard. Document "crash authoritative".
+- **main.ts:44,197 — bot2 respawn speed mismatch.** Initial 4.0; `respawnPlane` 3.5. Post-respawn bot2 behaves differently. Parameterize.
+- **bot.ts:49 — both bots target `plane` only** (commit admits). Bot1-vs-bot2 crossfire credits player via HIGH #1. Tag for M2.
+- **ai-vs-ai.test.ts** — no new coverage for crash, sfx, bot2, respawn. 16b6b2a "5 tests pass" true, unchanged since 74a3c2b.
+
+### LOW
+- **projectiles.ts:134** — `atan2(vy,vx)` assumes bomb PNG nose at +x; confirm orientation.
+- **main.ts:303-305** — three stale comments describe a moved block. Delete.
+- **main.ts:189** — `stepCombatant` unused `_p`, third sweep flagging.

@@ -143,12 +143,15 @@ function drawWorld(): void {
   drawBackground(ctx, plane.x, canvas.width, canvas.height);
 
   // Overlay parallax cloud sprites (cheap, scrolls with player.x at 0.15 rate).
+  // Double-draw at x + canvas.width offset prevents edge-pop at wrap seam.
   if (cloudSprite.complete && cloudSprite.naturalWidth > 0) {
     const cloudPositions = [120, 380, 670, 950, 1280];
     const parallax = 0.15;
+    const cw = cloudSprite.naturalWidth;
     for (const cx of cloudPositions) {
       const sx = ((cx - plane.x * parallax) % canvas.width + canvas.width) % canvas.width;
-      ctx.drawImage(cloudSprite, sx - cloudSprite.naturalWidth / 2, 60);
+      ctx.drawImage(cloudSprite, sx - cw / 2, 60);
+      ctx.drawImage(cloudSprite, sx - cw / 2 - canvas.width, 60);
     }
   }
 
@@ -252,21 +255,19 @@ function loop(now: number): void {
   if (botC.hp > 0) hitboxes.push({ plane: bot, ownerId: BOT_ID, radius: PLANE_HITBOX_RADIUS });
   if (bot2C.hp > 0) hitboxes.push({ plane: bot2, ownerId: BOT2_ID, radius: PLANE_HITBOX_RADIUS });
   // Crash-on-ground
+  // Crash-on-ground: self-inflicted, no kill credit awarded (unattributed).
   if (player.hp > 0 && detectCrash(plane)) {
     takeDamage(player, MAX_HP);
-    addKill(score, BOT_ID);
     spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
   }
   if (botC.hp > 0 && detectCrash(bot)) {
     takeDamage(botC, MAX_HP);
-    addKill(score, PLAYER_ID);
     spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
   }
   if (bot2C.hp > 0 && detectCrash(bot2)) {
     takeDamage(bot2C, MAX_HP);
-    addKill(score, PLAYER_ID);
     spawnExplosion(bot2.x, bot2.y, Math.cos(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
   }
