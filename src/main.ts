@@ -111,6 +111,16 @@ function tryPlayerBomb(dtSec: number): void {
   }
 }
 
+function drawHpBar(x: number, y: number, hp: number): void {
+  const w = 30;
+  const h = 3;
+  ctx.fillStyle = '#0008';
+  ctx.fillRect(x - w / 2, y, w, h);
+  const pct = Math.max(0, hp / MAX_HP);
+  ctx.fillStyle = pct > 0.5 ? '#7f7' : pct > 0.2 ? '#fc4' : '#f55';
+  ctx.fillRect(x - w / 2, y, w * pct, h);
+}
+
 function drawPlane(p: typeof plane, sprite: HTMLImageElement, fallbackBody: string, fallbackWing: string): void {
   // Flip sprite vertically when flying left-half so the pilot stays upright.
   // cos(angle) < 0 means nose pointing left; mirror the sprite and flip the
@@ -313,9 +323,18 @@ function loop(now: number): void {
   }
 
   drawWorld();
-  if (player.hp > 0) drawPlane(plane, planeRedSprite, '#843', '#c94');
-  if (botC.hp > 0) drawPlane(bot, planeTealSprite, '#348', '#4bc');
-  if (bot2C.hp > 0) drawPlane(bot2, planeGreenSprite, '#384', '#4c6');
+  if (player.hp > 0) {
+    drawPlane(plane, planeRedSprite, '#843', '#c94');
+    drawHpBar(plane.x, plane.y - 26, player.hp);
+  }
+  if (botC.hp > 0) {
+    drawPlane(bot, planeTealSprite, '#348', '#4bc');
+    drawHpBar(bot.x, bot.y - 26, botC.hp);
+  }
+  if (bot2C.hp > 0) {
+    drawPlane(bot2, planeGreenSprite, '#384', '#4c6');
+    drawHpBar(bot2.x, bot2.y - 26, bot2C.hp);
+  }
   drawProjectiles(ctx, bombSprite);
   drawParticles(ctx);
   drawHUD();
