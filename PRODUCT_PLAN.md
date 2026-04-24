@@ -6,6 +6,11 @@
 ### Vision
 Browser-playable remake of Triplane Turmoil's **multiplayer dogfight** mode — up to 4 players on one screen (keyboard split) + network multiplayer as the stretch. Pixel-art sprites via pixellab. Deploy target: `claw.bitvox.me/triplane/` (static + WebSocket relay for netplay).
 
+### Top-Level Goals (per VoX)
+1. **Fun, low-latency multiplayer.** Netcode that feels responsive — client-side prediction + server reconciliation. Sub-100ms perceived input lag.
+2. **Fun against bots.** Single-player must be a real game on its own, not just a demo. Bots that scale in difficulty, distinct personalities, decent dogfight AI.
+3. **Easy startup.** Visiting `claw.bitvox.me/triplane/` should drop you into a playable match against bots within 5 seconds — no signup, no lobby wait, no "waiting for opponent." Multiplayer is opt-in (button to "join public match" or share a room link).
+
 ### Stack
 - Vite + TypeScript + Canvas2D (pixelated scaling)
 - Netcode: WebSockets (authoritative server on claw.bitvox.me), lockstep with client-side prediction for plane physics
@@ -28,16 +33,20 @@ Browser-playable remake of Triplane Turmoil's **multiplayer dogfight** mode — 
 - 4 players max, keyboard or gamepad.
 
 ### Backlog (priority-ordered)
-1. **M1 — proper plane physics** — port lift/stall/thrust/turn model from `plane.cpp`. Replace placeholder integration.
+1. ~~**M1 — proper plane physics** — port from plane.cpp~~ (PR pending merge, this turn)
 2. **M1 — terrain** — ground collision + scrolling map. Start with flat+hills.
 3. **M1 — guns** — MG shots (forward-facing, gravity-affected), max 500 per side.
 4. **M1 — bombs** — drop physics, explosion frames.
-5. **M2 — sprites** — pixellab gen for plane body, wings, propeller, explosions, terrain tiles. Replace rect placeholders.
-6. **M2 — 2-player local** — split keyboard (WASD + arrows), second plane instance.
-7. **M3 — multiplayer netcode** — WebSocket relay, authoritative sim on server, prediction on client.
-8. **M3 — 4-player local** — gamepad support.
-9. **M3 — deployment** — Caddy route for `claw.bitvox.me/triplane/`.
-10. **M4 — polish** — sound (howler.js), HUD, scoreboard, game modes (dogfight, bomber, capture-the-flag).
+5. **M1 — bot AI v0** — single basic bot to dogfight against. "Easy startup" goal requires bots ready well before any netcode. Even a dumb circling bot is the difference between "demo" and "game."
+6. **M1 — instant-start UX** — page load → bot match in <5 seconds. No menus on first paint. Add menu later for "settings" / "join multiplayer."
+7. **M2 — sprites** — pixellab gen for plane body, wings, propeller, explosions, terrain tiles. Replace rect placeholders.
+8. **M2 — 2-player local** — split keyboard (WASD + arrows), second plane instance.
+9. **M2 — bot variety** — 3+ AI personalities (aggressive, evasive, sniper). Tunable difficulty.
+10. **M3 — multiplayer netcode** — WebSocket relay, authoritative sim on server, client-side prediction + server reconciliation. Sub-100ms perceived input lag.
+11. **M3 — room links** — `?room=<id>` → opt-in shared session with friends. Default = bot match.
+12. **M3 — 4-player local** — gamepad support.
+13. **M3 — deployment** — Caddy route for `claw.bitvox.me/triplane/`.
+14. **M4 — polish** — sound (howler.js), HUD, scoreboard, game modes (dogfight, bomber, capture-the-flag).
 
 ### Ritual
 Before merging ANY PR touching `src/`: 2 `/simplify` agents + 2 `/review` agents in parallel (4-agent ritual). Pure-docs PRs ≤ 50 lines merge without ritual.
