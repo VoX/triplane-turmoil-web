@@ -180,14 +180,15 @@ function drawWorld(): void {
   drawBackground(ctx, plane.x, canvas.width, canvas.height);
 
   // Overlay parallax cloud sprites (cheap, scrolls with player.x at 0.15 rate).
-  // Double-draw at x + canvas.width offset prevents edge-pop at wrap seam.
+  // Triple-draw (one wrap each side) so no seam regardless of scroll direction.
   if (cloudSprite.complete && cloudSprite.naturalWidth > 0) {
-    const cloudPositions = [120, 380, 670, 950, 1280];
+    const cloudPositions = [120, 380, 670];
     const parallax = 0.15;
     const cw = cloudSprite.naturalWidth;
     for (const cx of cloudPositions) {
       const sx = ((cx - plane.x * parallax) % canvas.width + canvas.width) % canvas.width;
       ctx.drawImage(cloudSprite, sx - cw / 2, 60);
+      ctx.drawImage(cloudSprite, sx - cw / 2 + canvas.width, 60);
       ctx.drawImage(cloudSprite, sx - cw / 2 - canvas.width, 60);
     }
   }
