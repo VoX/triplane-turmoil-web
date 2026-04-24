@@ -316,10 +316,16 @@ function loop(now: number): void {
   for (const f of fighters) {
     if (tickRespawn(f.combatant, dtSec)) respawnFighter(f);
     if (f.combatant.hp <= 0) continue;
-    const target = f.isHuman ? null : pickNearestEnemy(f);
-    const input = target
-      ? thinkBot(f.plane, target.plane, f.botMemory!, dtSec)
-      : readInput();
+    let input: PlaneInput;
+    if (f.isHuman) {
+      input = readInput();
+    } else {
+      const target = pickNearestEnemy(f);
+      // No enemies left → idle pursuit (cruise, no fire).
+      input = target
+        ? thinkBot(f.plane, target.plane, f.botMemory!, dtSec)
+        : { up: false, down: false, throttle: f.plane.speed < STALL_SPEED + 1 };
+    }
     stepPlane(f.plane, input, dtSec, GROUND_Y);
   }
   // Fire/bomb input per fighter.
