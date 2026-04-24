@@ -110,16 +110,17 @@ export function stepPlane(p: PlaneState, input: PlaneInput, dtSec: number, groun
     turnRate /= divisor;
   }
 
-  // --- Stall: forced angle drift toward nose-down (source forces angle via -= / += 1024).
+  // --- Stall: drift nose toward dive (Math.PI/2 in screen-y-down).
+  // Source pushes angle toward 270° in its y-up convention (= dive); the
+  // mirror in screen-y-down is π/2.
   if (p.speed < STALL_SPEED && !p.onGround) {
     const STALL_DRIFT = (1024 / 256) * (Math.PI / 180) * TICK_HZ * dtSec;
-    if (p.angle < Math.PI / 2 && p.angle >= 0) {
-      p.angle -= STALL_DRIFT;
-    } else if (p.angle > Math.PI / 2 && p.angle < (3 * Math.PI) / 2) {
-      p.angle += STALL_DRIFT;
-    } else if (p.angle > (3 * Math.PI) / 2) {
-      p.angle -= STALL_DRIFT;
-    }
+    const target = Math.PI / 2;
+    let diff = target - p.angle;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    const step = Math.sign(diff) * Math.min(Math.abs(diff), STALL_DRIFT);
+    p.angle += step;
   }
 
   // --- Turning input consumes speed (per source "if up/down: speed -= initial_turn/100").
@@ -162,10 +163,12 @@ export function stepPlane(p: PlaneState, input: PlaneInput, dtSec: number, groun
   // Plus the lift-fall (straight down, regardless of angle)
   p.y += fallPerSec * dtSec;
 
-  // Ground handling.
+  // Ground handling. Single-frame "almost-ground-touch" doesn't damp speed —
+  // only sustained ground time. Source's airfield rest mechanism is more
+  // nuanced; v1 keeps it simple to avoid the per-frame bounce that crushed
+  // throttle-from-rest acceleration.
   if (p.y >= groundY) {
     p.y = groundY;
-    if (!p.onGround) p.speed *= 0.3;
     p.onGround = true;
   } else {
     p.onGround = false;
