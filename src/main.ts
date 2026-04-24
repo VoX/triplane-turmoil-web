@@ -1,11 +1,12 @@
-import { createPlane, stepPlane, STALL_SPEED, type PlaneInput } from './physics';
-import { createBotMemory, thinkBot, notifyBotDamage } from './bot';
+import { stepPlane, STALL_SPEED, type PlaneInput } from './physics';
+import { thinkBot, notifyBotDamage } from './bot';
 import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets, reapGroundedBombs } from './projectiles';
 import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
 import { spawnExplosion, updateParticles, drawParticles } from './vfx';
 import { initAudio, resumeAudio, sfxMGShot, sfxBombDrop, sfxExplosion, sfxHit, sfxEngine, stopEngine } from './sfx';
-import { createCombatant, takeDamage, tickRespawn, detectCrash, addKill, createScore, MAX_HP, PLANE_HITBOX_RADIUS } from './combat';
+import { takeDamage, tickRespawn, detectCrash, addKill, createScore, MAX_HP, PLANE_HITBOX_RADIUS } from './combat';
+import { createFighter, respawnFighter, type Fighter } from './entity';
 import { MG_SHOT_RATE } from './constants';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -35,28 +36,38 @@ addEventListener('keydown', () => { startBgm(); resumeAudio(); });
 addEventListener('pointerdown', () => { startBgm(); resumeAudio(); });
 
 const GROUND_Y = canvas.height - 30;
-const plane = createPlane(100, GROUND_Y, 0);
-const bot = createPlane(canvas.width - 100, GROUND_Y - 160, Math.PI);
-bot.speed = 3.5;
-bot.onGround = false; // explicit — bot spawns mid-air, not on tarmac
-const botMem = createBotMemory(GROUND_Y);
-const bot2 = createPlane(canvas.width - 100, GROUND_Y - 260, Math.PI);
-bot2.speed = 4.0;
-bot2.onGround = false;
-const bot2Mem = createBotMemory(GROUND_Y);
-bot2Mem.targetAltitude = GROUND_Y - 260;
-
 const PLAYER_ID = 0;
 const BOT_ID = 1;
 const BOT2_ID = 2;
 const FIRE_COOLDOWN_SEC = MG_SHOT_RATE / 60;
-const player = createCombatant(PLAYER_ID);
-const botC = createCombatant(BOT_ID);
-const bot2C = createCombatant(BOT2_ID);
-const score = createScore();
-let playerFireCooldown = 0;
-let bombDropCooldown = 0;
 const BOMB_COOLDOWN_SEC = 0.5;
+
+const fighters: Fighter[] = [
+  createFighter({
+    id: PLAYER_ID, name: 'You',
+    spawn: { x: 100, y: GROUND_Y, angle: 0, speed: 0 },
+    sprite: planeRedSprite, fallbackBody: '#843', fallbackWing: '#c94',
+    isHuman: true, groundY: GROUND_Y
+  }),
+  createFighter({
+    id: BOT_ID, name: 'Teal',
+    spawn: { x: canvas.width - 100, y: GROUND_Y - 160, angle: Math.PI, speed: 3.5 },
+    sprite: planeTealSprite, fallbackBody: '#348', fallbackWing: '#4bc',
+    isHuman: false, groundY: GROUND_Y
+  }),
+  createFighter({
+    id: BOT2_ID, name: 'Green',
+    spawn: { x: canvas.width - 100, y: GROUND_Y - 260, angle: Math.PI, speed: 4.0 },
+    sprite: planeGreenSprite, fallbackBody: '#384', fallbackWing: '#4c6',
+    isHuman: false, groundY: GROUND_Y
+  })
+];
+// Convenience handles — used by HUD code that hasn't been generalized yet.
+const player = fighters[0].combatant;
+const plane = fighters[0].plane;
+fighters[1].botMemory!.targetAltitude = GROUND_Y - 160;
+fighters[2].botMemory!.targetAltitude = GROUND_Y - 260;
+const score = createScore();
 // Plane physics speed is in normalized frame-units (~6 max) but projectile
 // system expects px/s. Convert via PLANE_SPEED_TO_PXPS so muzzle velocity
 // inheritance lands at the right scale.
@@ -81,32 +92,28 @@ function readInput(): PlaneInput {
   };
 }
 
-function tryPlayerFire(dtSec: number): void {
-  if (player.hp <= 0) { playerFireCooldown = 0; return; }
-  playerFireCooldown = Math.max(0, playerFireCooldown - dtSec);
-  if (!keys.has(' ') && !keys.has('f')) return;
-  if (playerFireCooldown > 0) return;
-  if (plane.onGround) return;
-  const muzzleX = plane.x + Math.cos(plane.angle) * 16;
-  const muzzleY = plane.y + Math.sin(plane.angle) * 16;
-  const planeVx = Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS;
-  const planeVy = Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS;
-  if (fireMG(muzzleX, muzzleY, planeVx, planeVy, plane.angle, PLAYER_ID)) {
-    playerFireCooldown = FIRE_COOLDOWN_SEC;
+function tryFighterFire(f: Fighter, fire: boolean, dtSec: number): void {
+  if (f.combatant.hp <= 0) { f.fireCooldown = 0; return; }
+  f.fireCooldown = Math.max(0, f.fireCooldown - dtSec);
+  if (!fire || f.fireCooldown > 0 || f.plane.onGround) return;
+  const muzzleX = f.plane.x + Math.cos(f.plane.angle) * 16;
+  const muzzleY = f.plane.y + Math.sin(f.plane.angle) * 16;
+  const vx = Math.cos(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS;
+  const vy = Math.sin(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS;
+  if (fireMG(muzzleX, muzzleY, vx, vy, f.plane.angle, f.id)) {
+    f.fireCooldown = FIRE_COOLDOWN_SEC;
     sfxMGShot();
   }
 }
 
-function tryPlayerBomb(dtSec: number): void {
-  if (player.hp <= 0) { bombDropCooldown = 0; return; }
-  bombDropCooldown = Math.max(0, bombDropCooldown - dtSec);
-  if (!shiftDown && !keys.has('b')) return;
-  if (bombDropCooldown > 0) return;
-  if (plane.onGround) return;
-  const planeVx = Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS;
-  const planeVy = Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS;
-  if (dropBomb(plane.x, plane.y + 4, planeVx, planeVy, PLAYER_ID)) {
-    bombDropCooldown = BOMB_COOLDOWN_SEC;
+function tryFighterBomb(f: Fighter, drop: boolean, dtSec: number): void {
+  if (f.combatant.hp <= 0) { f.bombCooldown = 0; return; }
+  f.bombCooldown = Math.max(0, f.bombCooldown - dtSec);
+  if (!drop || f.bombCooldown > 0 || f.plane.onGround) return;
+  const vx = Math.cos(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS;
+  const vy = Math.sin(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS;
+  if (dropBomb(f.plane.x, f.plane.y + 4, vx, vy, f.id)) {
+    f.bombCooldown = BOMB_COOLDOWN_SEC;
     sfxBombDrop();
   }
 }
@@ -211,32 +218,9 @@ function drawWorld(): void {
   ctx.fillRect(0, GROUND_Y - 4, canvas.width, 4);
 }
 
-const botFireCooldowns: Record<string, number> = { bot1: 0, bot2: 0 };
-function tryBotFire(b: typeof bot, c: typeof botC, mem: typeof botMem, key: string, dtSec: number): void {
-  if (c.hp <= 0) { botFireCooldowns[key] = 0; return; }
-  botFireCooldowns[key] = Math.max(0, botFireCooldowns[key] - dtSec);
-  if (!mem.shouldFire) return;
-  if (botFireCooldowns[key] > 0) return;
-  const muzzleX = b.x + Math.cos(b.angle) * 16;
-  const muzzleY = b.y + Math.sin(b.angle) * 16;
-  const vx = Math.cos(b.angle) * b.speed * PLANE_SPEED_TO_PXPS;
-  const vy = Math.sin(b.angle) * b.speed * PLANE_SPEED_TO_PXPS;
-  if (fireMG(muzzleX, muzzleY, vx, vy, b.angle, c.id)) {
-    botFireCooldowns[key] = FIRE_COOLDOWN_SEC;
-    sfxMGShot();
-  }
-}
-
-function stepCombatant(c: Parameters<typeof tickRespawn>[0], _p: typeof plane, dtSec: number, respawn: () => void): void {
-  if (tickRespawn(c, dtSec)) respawn();
-}
-
-function respawnPlane(p: typeof plane, x: number, y: number, angle: number): void {
-  p.x = x;
-  p.y = y;
-  p.angle = angle;
-  p.speed = 3.5;
-  p.onGround = false;
+function nameForId(id: number): string {
+  const f = fighters.find((x) => x.id === id);
+  return f ? f.name : `#${id}`;
 }
 
 function drawHUD(): void {
@@ -267,19 +251,22 @@ function loop(now: number): void {
   last = now;
   const dtSec = rawDt;
 
-  stepCombatant(player, plane, dtSec, () => respawnPlane(plane, 100, GROUND_Y, 0));
-  stepCombatant(botC, bot, dtSec, () => respawnPlane(bot, canvas.width - 100, GROUND_Y - 160, Math.PI));
-  stepCombatant(bot2C, bot2, dtSec, () => respawnPlane(bot2, canvas.width - 100, GROUND_Y - 260, Math.PI));
-
-  if (player.hp > 0) stepPlane(plane, readInput(), dtSec, GROUND_Y);
-  if (botC.hp > 0) stepPlane(bot, thinkBot(bot, plane, botMem, dtSec), dtSec, GROUND_Y);
-  if (bot2C.hp > 0) stepPlane(bot2, thinkBot(bot2, plane, bot2Mem, dtSec), dtSec, GROUND_Y);
-  if (player.hp > 0) {
-    tryPlayerFire(dtSec);
-    tryPlayerBomb(dtSec);
+  // Tick respawns + sim per fighter.
+  for (const f of fighters) {
+    if (tickRespawn(f.combatant, dtSec)) respawnFighter(f);
+    if (f.combatant.hp <= 0) continue;
+    const target = fighters[0]; // bots target the player for now
+    const input = f.isHuman ? readInput() : thinkBot(f.plane, target.plane, f.botMemory!, dtSec);
+    stepPlane(f.plane, input, dtSec, GROUND_Y);
   }
-  if (botC.hp > 0) tryBotFire(bot, botC, botMem, 'bot1', dtSec);
-  if (bot2C.hp > 0) tryBotFire(bot2, bot2C, bot2Mem, 'bot2', dtSec);
+  // Fire/bomb input per fighter.
+  for (const f of fighters) {
+    if (f.combatant.hp <= 0) continue;
+    const wantsFire = f.isHuman ? (keys.has(' ') || keys.has('f')) : !!f.botMemory?.shouldFire;
+    const wantsBomb = f.isHuman ? (shiftDown || keys.has('b')) : false;
+    tryFighterFire(f, wantsFire, dtSec);
+    tryFighterBomb(f, wantsBomb, dtSec);
+  }
   updateProjectiles(dtSec);
 
   // Ground bombs explode + splash damage to nearby planes.
@@ -288,84 +275,61 @@ function loop(now: number): void {
   for (const hit of reapGroundedBombs(GROUND_Y)) {
     spawnExplosion(hit.x, hit.y, 0, 0);
     sfxExplosion();
-    for (const h of [{ p: plane, c: player, name: 'You' }, { p: bot, c: botC, name: 'Teal' }, { p: bot2, c: bot2C, name: 'Green' }]) {
-      if (h.c.hp <= 0) continue;
-      const dx = h.p.x - hit.x;
-      const dy = h.p.y - hit.y;
+    for (const f of fighters) {
+      if (f.combatant.hp <= 0) continue;
+      const dx = f.plane.x - hit.x;
+      const dy = f.plane.y - hit.y;
       if (dx * dx + dy * dy <= BOMB_BLAST_RADIUS * BOMB_BLAST_RADIUS) {
-        const died = takeDamage(h.c, BOMB_DAMAGE);
+        const died = takeDamage(f.combatant, BOMB_DAMAGE);
         sfxHit();
         if (died) {
-          spawnExplosion(h.p.x, h.p.y, 0, 0);
+          spawnExplosion(f.plane.x, f.plane.y, 0, 0);
           sfxExplosion();
-          pushKill(h.name, hit.ownerId === PLAYER_ID ? 'You' : hit.ownerId === BOT_ID ? 'Teal' : 'Green');
+          if (hit.ownerId !== f.id) addKill(score, hit.ownerId);
+          pushKill(f.name, nameForId(hit.ownerId));
         }
       }
     }
   }
 
-  const hitboxes: PlaneHitbox[] = [];
-  if (player.hp > 0) hitboxes.push({ plane, ownerId: PLAYER_ID, radius: PLANE_HITBOX_RADIUS });
-  if (botC.hp > 0) hitboxes.push({ plane: bot, ownerId: BOT_ID, radius: PLANE_HITBOX_RADIUS });
-  if (bot2C.hp > 0) hitboxes.push({ plane: bot2, ownerId: BOT2_ID, radius: PLANE_HITBOX_RADIUS });
-  // Crash-on-ground
-  // Crash-on-ground: self-inflicted, no kill credit awarded (unattributed).
-  if (player.hp > 0 && detectCrash(plane)) {
-    takeDamage(player, MAX_HP);
-    spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, 0);
+  // Crash-on-ground: self-inflicted, no kill credit.
+  for (const f of fighters) {
+    if (f.combatant.hp <= 0) continue;
+    if (!detectCrash(f.plane)) continue;
+    takeDamage(f.combatant, MAX_HP);
+    spawnExplosion(f.plane.x, f.plane.y, Math.cos(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
-    pushKill('You', null);
-  }
-  if (botC.hp > 0 && detectCrash(bot)) {
-    takeDamage(botC, MAX_HP);
-    spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, 0);
-    sfxExplosion();
-    pushKill('Teal', null);
-  }
-  if (bot2C.hp > 0 && detectCrash(bot2)) {
-    takeDamage(bot2C, MAX_HP);
-    spawnExplosion(bot2.x, bot2.y, Math.cos(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS, 0);
-    sfxExplosion();
-    pushKill('Green', null);
+    pushKill(f.name, null);
   }
 
+  // Bullet hits.
+  const hitboxes: PlaneHitbox[] = [];
+  for (const f of fighters) {
+    if (f.combatant.hp > 0) hitboxes.push({ plane: f.plane, ownerId: f.id, radius: PLANE_HITBOX_RADIUS });
+  }
   const damage = resolveBulletHits(hitboxes);
   for (const [target, dmg] of damage) {
     sfxHit();
-    if (target === PLAYER_ID) {
-      if (takeDamage(player, dmg)) {
-        addKill(score, BOT_ID);
-        spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS);
-        sfxExplosion();
-        pushKill('You', 'Enemy');
-      }
-    } else if (target === BOT_ID) {
-      if (takeDamage(botC, dmg)) {
-        addKill(score, PLAYER_ID);
-        spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS);
-        sfxExplosion();
-        pushKill('Teal', 'You');
+    const f = fighters.find((x) => x.id === target);
+    if (!f) continue;
+    if (takeDamage(f.combatant, dmg)) {
+      // No reliable killer attribution from collision result (could derive from killBullet ownerId — TODO);
+      // For now credit the player when a bot dies, and credit "Enemy" when the player dies.
+      if (f.isHuman) {
+        pushKill(f.name, 'Enemy');
       } else {
-        notifyBotDamage(bot, plane, botMem);
-      }
-    } else if (target === BOT2_ID) {
-      if (takeDamage(bot2C, dmg)) {
         addKill(score, PLAYER_ID);
-        spawnExplosion(bot2.x, bot2.y, Math.cos(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot2.angle) * bot2.speed * PLANE_SPEED_TO_PXPS);
-        sfxExplosion();
-        pushKill('Green', 'You');
-      } else {
-        notifyBotDamage(bot2, plane, bot2Mem);
+        pushKill(f.name, 'You');
       }
+      spawnExplosion(f.plane.x, f.plane.y, Math.cos(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS);
+      sfxExplosion();
+    } else if (!f.isHuman && f.botMemory) {
+      notifyBotDamage(f.plane, fighters[0].plane, f.botMemory);
     }
   }
   updateParticles(dtSec);
 
-  // Ground bomb explosions (reaped earlier) — note already spawned VFX above, add sfx
-  // (sfxExplosion is idempotent to duplicate-play, audio throttle in sfx.ts)
-  // (skipped separately; the bomb-reap block already handled VFX spawn)
-
-  // Engine sfx follows the player plane's speed/throttle
+  // Engine sfx follows the player plane.
   if (player.hp > 0 && !plane.onGround) {
     sfxEngine(Math.min(1, plane.speed / 7));
   } else {
@@ -373,17 +337,10 @@ function loop(now: number): void {
   }
 
   drawWorld();
-  if (player.hp > 0) {
-    drawPlane(plane, planeRedSprite, '#843', '#c94');
-    drawHpBar(plane.x, plane.y - 26, player.hp);
-  }
-  if (botC.hp > 0) {
-    drawPlane(bot, planeTealSprite, '#348', '#4bc');
-    drawHpBar(bot.x, bot.y - 26, botC.hp);
-  }
-  if (bot2C.hp > 0) {
-    drawPlane(bot2, planeGreenSprite, '#384', '#4c6');
-    drawHpBar(bot2.x, bot2.y - 26, bot2C.hp);
+  for (const f of fighters) {
+    if (f.combatant.hp <= 0) continue;
+    drawPlane(f.plane, f.sprite, f.fallbackBody, f.fallbackWing);
+    drawHpBar(f.plane.x, f.plane.y - 26, f.combatant.hp);
   }
   drawProjectiles(ctx, bombSprite);
   drawParticles(ctx);

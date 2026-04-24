@@ -452,3 +452,67 @@ Scope: 17e078d (HIGH-fix), 36e5a4c (plan), 9b5cf8d (HP bars), 7b40784 (kill feed
 ### LOW
 - **main.ts:117** — `KILL_FEED_LIFE_SEC = 3.0` consumed as seconds; matches commit msg.
 - **PRODUCT_PLAN.md** — doc-only, no correctness risk.
+
+## 2026-04-24 05:05Z — Performance sweep #6
+
+Net-new: tracers, bomb splash, cloud triple-draw.
+
+### HIGH
+- **projectiles.ts:127-137** — per-bullet `beginPath`/`moveTo`/`lineTo`/`stroke` + `hypot`. Stroke is Canvas2D's priciest path op; 500-pool ≈ 3-5 ms/frame. Batch into one path + trailing `stroke()`, reuse cached `ux/uy`, drop redundant `fillRect` line 138. **~2-4 ms saved.**
+
+### MEDIUM
+- **main.ts:289-303** — bomb splash allocs fresh `[{...},{...},{...}]` literal per ground-bomb-per-frame. Fans at 8p. Reuse entities[] (P0 #1); pre-square `BLAST_RADIUS²`.
+- **main.ts:191** — cloud draws now 9/frame (was 6). Sign-pick by velocity, draw 2.
+
+### LOW
+- **projectiles.ts:123** — hoist `strokeStyle` outside loop.
+
+### Frame budget (3p, ~45 bullets, bg, audio, HUD, tracers, splash)
+Sim ~85, draw ~470 (+80 tracer, +10 cloud), audio ~30. ~585 µs = 3.5%. 500-pool blows draw to ~4 ms — first real pressure. **Top 3:** batch tracers, sfx pool (#4), hitbox pre-alloc.
+
+## 2026-04-24 05:05Z — Security sweep #6
+
+Scope: splash, vfx PRNG, tracers, entity.ts. `npm audit` clean.
+
+### MEDIUM
+- **main.ts:296-301** — splash kill fires `pushKill` only, no `addKill` (bullets do, `:337+`). Splash-killing player updates feed but not scoreboard.
+- **main.ts:301** — killer-name chain defaults unknown ownerId to `'Green'`; brittle once bots/remotes drop bombs — owner→name off `Fighter` (P0 #1).
+
+### LOW
+- **main.ts:301** — own-bomb splash → `pushKill('You','You')`. Gate `victim===killer`.
+
+### INFO
+- **vfx.ts:38** — mulberry32 non-crypto (correct, VFX). Default seed constant + `seedVfx` never called → identical first burst per load. Netcode must seed from server world-id, never `Date.now()`.
+
+Carryovers: #4 sfx-throttle, #5 measureText caps + RTL strip — netcode-blocked.
+
+## 2026-04-24 05:05Z — Architecture sweep #6
+
+Scope: `7b40784..42c1704` — bomb splash, vfx-seeded-PRNG (#7), cloud triple-draw, bullet tracers, `entity.ts` (`Fighter` type) created but unwired.
+
+**Health movement**
+- WIN — `vfx.ts:38-43` adds `seedVfx` + per-burst `seed` arg. First sim-state to go deterministic since the rewrite call. Default-stream + override is the right shape; clone for any future `Math.random` site.
+- WIN — `entity.ts` lands `Fighter` + `createFighter`/`respawnFighter`. Type matches PRODUCT_PLAN P0 #1; clean dependency edge (entity → physics/combat/bot, no DOM, no `main`).
+- REGRESSION — type exists, **zero call sites**. `main.ts:38-58` still hand-rolls `plane`/`bot`/`bot2` + `botC`/`bot2C` + `botMem`/`bot2Mem` + `botFireCooldowns`. Bullet-damage switch (`main.ts:335-360`) unchanged; new bomb-splash loop (`main.ts:291`) is a fourth N×3 stringly-typed ladder. Adding bot3 = ~14 sites instead of one push.
+- REGRESSION — `main.ts` 378→395 LoC. `Fighter` migration cost grows with every feature shipped pre-wire-up.
+
+**New MEDIUM — splash damage hardcodes the roster.** `main.ts:291` literal `[{plane,player,'You'},{bot,botC,'Teal'},{bot2,bot2C,'Green'}]`. Land `fighters[]` first or this gets copied for missiles/AA.
+
+**Status:** 2 BLOCKERs + 6 HIGHs open. Scaffolding in (Fighter, seeded vfx); zero wired. Hard pause on combat features until P0 #1 lands.
+
+## 2026-04-24 05:05Z — Delta correctness sweep #6
+
+Scope: 3baf7ee (bomb splash), 26cf6ed (vfx PRNG #7), 86bc053 (cloud), 42c1704 (tracers).
+
+### HIGH
+- **main.ts:298-302** — Bomb splash calls `pushKill` but never `addKill(score, hit.ownerId)`. Scoreboard at L255 silently undercounts every bomb-kill; only MG kills (L337/344/353) increment. Mirror bullet path.
+- **main.ts:291,301** — Own plane is in splash `h` array → fly into own bomb, feed reads "You downed You". Skip when `hit.ownerId === h.c.id` or pass `null` killer.
+
+### MEDIUM
+- **main.ts:288-304** vs **L314+** — Splash kills before crash branch. Same race sweep #5 flagged: bomb drops plane to 0 hp, ground-impact same frame fires `takeDamage(_, MAX_HP)` + second `pushKill('X', null)` → "X downed X" then "X crashed". Re-check `hp > 0` or reorder.
+- **vfx.ts:20** — `seedVfx` exported but `main.ts` never calls it. Determinism claim half-built — module-load seed fixed across runs, but world-reset/reconnect won't reseed → drift between joiners. Wire at boot.
+- **main.ts:291** — Per-frame 3-object array literal in bomb loop. Hoist to module scope.
+
+### LOW
+- **projectiles.ts:124-138** — Tracer mixes `stroke`+`fill` per bullet, no batching. Perf #6 already flagged.
+- **main.ts:185** — `cloudPositions` trimmed to 3 + triple-draw at ±W. Correct.
