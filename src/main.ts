@@ -62,6 +62,7 @@ function readInput(): PlaneInput {
 }
 
 function tryPlayerFire(dtSec: number): void {
+  if (player.hp <= 0) { playerFireCooldown = 0; return; }
   playerFireCooldown = Math.max(0, playerFireCooldown - dtSec);
   if (!keys.has(' ') && !keys.has('f')) return;
   if (playerFireCooldown > 0) return;
@@ -76,6 +77,7 @@ function tryPlayerFire(dtSec: number): void {
 }
 
 function tryPlayerBomb(dtSec: number): void {
+  if (player.hp <= 0) { bombDropCooldown = 0; return; }
   bombDropCooldown = Math.max(0, bombDropCooldown - dtSec);
   if (!shiftDown && !keys.has('b')) return;
   if (bombDropCooldown > 0) return;
@@ -116,6 +118,7 @@ function drawWorld(): void {
 
 let botFireCooldown = 0;
 function tryBotFire(dtSec: number): void {
+  if (botC.hp <= 0) { botFireCooldown = 0; return; }
   botFireCooldown = Math.max(0, botFireCooldown - dtSec);
   if (!botMem.shouldFire) return;
   if (botFireCooldown > 0) return;
