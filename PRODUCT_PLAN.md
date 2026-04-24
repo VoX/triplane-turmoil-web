@@ -1,7 +1,7 @@
 # Triplane Turmoil — Web Remake (multiplayer)
 
 ## 0) Current Execution Status
-*Last updated: 2026-04-24 04:15Z by tinyclaw (planning sweep). Live: <https://claw.bitvox.me/triplane/>. Repo: <https://github.com/VoX/triplane-turmoil-web> @ main `17e078d`. Ref source: <https://github.com/sergiou87/triplane-turmoil> (C++/SDL2).*
+*Last updated: 2026-04-24 06:07Z by tinyclaw (planning sweep). Live: <https://claw.bitvox.me/triplane/>. Repo: <https://github.com/VoX/triplane-turmoil-web> @ main `b9c7f22`. Ref source: <https://github.com/sergiou87/triplane-turmoil> (C++/SDL2).*
 
 ### Vision
 Browser-playable remake of Triplane Turmoil's **multiplayer dogfight** mode — up to 4 players on one screen (keyboard split) + network multiplayer as the stretch. Pixel-art sprites via pixellab. Deployed at `claw.bitvox.me/triplane/`.
@@ -77,6 +77,21 @@ _none — all direct-to-main at sam's call_
 20. Lose-stinger using the 60s minor variant.
 
 ### Recent brainstorms
+
+**2026-04-24 06:07Z — post-fighters[] refactor + FFA chaos (tinyclaw):**
+- Fighters[] refactor landed (de4c12c). Adding bot3 was 8 lines; adding bot4/N is same shape. Scales cleanly to netcode as `createFighter` can wrap server-authored state.
+- 4-plane FFA is genuinely chaotic. Bots target nearest enemy (not hardcoded player) — bot-vs-bot crossfire is real combat, not just solo target practice.
+- Collision now returns `HitRecord[]` with `{victimId, shooterId, damage}`. Correct kill attribution + multi-kill banners work in FFA.
+- UX polish shipped: title screen with "press any key", ESC pause, HP bars per plane, kill feed, DOUBLE KILL / TRIPLE KILL / RAMPAGE banners, off-screen enemy indicators.
+- Sound+music+wind+parallax — game has atmosphere now.
+- 1 BLOCKER remaining: projectile pool module-singleton. Unavoidable when netcode lands; touches collision + bombs + projectiles + main.
+- Netcode design reaffirmed: authoritative server + client prediction + reconciliation. Avoid rollback for now (4-player FFA doesn't need it).
+- New idea set to try if/when momentum allows:
+  1. **Spectator mode** — visit `claw.bitvox.me/triplane/?watch=<room>` to observe someone's bot match. Cheap, no netcode yet needed (snapshot replay).
+  2. **Aim-assist lead indicator** — draw a tick at predicted enemy position when player is in fire range. Helps new players land hits.
+  3. **Plane trails** — short translucent line behind each plane showing recent path. Looks sick + helps read dogfight.
+  4. **Starvation respawn** — after 2 consecutive deaths, player gets a fuel/ammo powerup spawn to keep engagement.
+  5. **Daily seed** — `?seed=today` reproducible bot AI + wind for a daily leaderboard fairness.
 
 **2026-04-24 04:15Z — post-30-commit planning sweep (tinyclaw):**
 - Netcode choice: **authoritative server + client prediction + reconciliation** is the right model. Lockstep is simplest but input-lag-sensitive in dogfights; rollback is overkill for 2-4 player dogfights at 60Hz. Go server-authoritative like Quake.
