@@ -14,7 +14,7 @@ export const MAX_POWERED_SPEED = 6.5;       // loose cap via drag balance at ful
 export const POWER_ACCEL = 0.4;             // speed gained per tick at full throttle
 export const GRAVITY_TANGENTIAL = 0.25;     // speed gained per tick when nose fully down
 export const GRAVITY_VERTICAL = 0.18;       // constant downward acceleration
-export const LIFT_PER_SPEED = 0.025;        // downward gravity offset per unit speed
+export const LIFT_PER_SPEED = 0.045;        // downward gravity offset per unit speed (tuned for hands-off level cruise ~7 speed)
 export const DRAG = 0.985;                  // per-tick speed multiplier
 export const TURN_BASE = 0.055;             // radians per tick at stall speed
 export const TURN_SPEED_DIVISOR = 4.0;      // turn rate = TURN_BASE / (1 + (speed-stall)/div)
