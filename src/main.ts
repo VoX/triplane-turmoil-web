@@ -4,6 +4,7 @@ import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets, reapG
 import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
 import { spawnExplosion, updateParticles, drawParticles } from './vfx';
+import { initAudio, resumeAudio, sfxMGShot, sfxBombDrop, sfxExplosion, sfxHit, sfxEngine, stopEngine } from './sfx';
 import { MG_SHOT_RATE } from './constants';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -19,9 +20,10 @@ let bgmStarted = false;
 function startBgm(): void {
   if (bgmStarted) return;
   bgm.play().then(() => { bgmStarted = true; }).catch(() => {});
+  initAudio();
 }
-addEventListener('keydown', startBgm, { once: true });
-addEventListener('pointerdown', startBgm, { once: true });
+addEventListener('keydown', () => { startBgm(); resumeAudio(); });
+addEventListener('pointerdown', () => { startBgm(); resumeAudio(); });
 
 const GROUND_Y = canvas.height - 30;
 const plane = createPlane(100, GROUND_Y, 0);
@@ -79,6 +81,7 @@ function tryPlayerFire(dtSec: number): void {
   const planeVy = Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS;
   if (fireMG(muzzleX, muzzleY, planeVx, planeVy, plane.angle, PLAYER_ID)) {
     playerFireCooldown = FIRE_COOLDOWN_SEC;
+    sfxMGShot();
   }
 }
 
@@ -92,6 +95,7 @@ function tryPlayerBomb(dtSec: number): void {
   const planeVy = Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS;
   if (dropBomb(plane.x, plane.y + 4, planeVx, planeVy, PLAYER_ID)) {
     bombDropCooldown = BOMB_COOLDOWN_SEC;
+    sfxBombDrop();
   }
 }
 
@@ -145,6 +149,7 @@ function tryBotFire(dtSec: number): void {
   const vy = Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS;
   if (fireMG(muzzleX, muzzleY, vx, vy, bot.angle, BOT_ID)) {
     botFireCooldown = FIRE_COOLDOWN_SEC;
+    sfxMGShot();
   }
 }
 
@@ -208,6 +213,7 @@ function loop(now: number): void {
   // Ground bombs explode.
   for (const hit of reapGroundedBombs(GROUND_Y)) {
     spawnExplosion(hit.x, hit.y, 0, 0);
+    sfxExplosion();
   }
 
   const hitboxes: PlaneHitbox[] = [];
@@ -217,23 +223,38 @@ function loop(now: number): void {
   for (const [target, dmg] of damage) {
     if (target === PLAYER_ID) {
       player.hp = Math.max(0, player.hp - dmg);
+      sfxHit();
       if (player.hp === 0) {
         player.respawnTimer = RESPAWN_SEC;
         score.bot++;
         spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS);
+        sfxExplosion();
       }
     } else if (target === BOT_ID) {
       botC.hp = Math.max(0, botC.hp - dmg);
+      sfxHit();
       if (botC.hp === 0) {
         botC.respawnTimer = RESPAWN_SEC;
         score.player++;
         spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS);
+        sfxExplosion();
       } else {
         notifyBotDamage(bot, plane, botMem);
       }
     }
   }
   updateParticles(dtSec);
+
+  // Ground bomb explosions (reaped earlier) — note already spawned VFX above, add sfx
+  // (sfxExplosion is idempotent to duplicate-play, audio throttle in sfx.ts)
+  // (skipped separately; the bomb-reap block already handled VFX spawn)
+
+  // Engine sfx follows the player plane's speed/throttle
+  if (player.hp > 0 && !plane.onGround) {
+    sfxEngine(Math.min(1, plane.speed / 7));
+  } else {
+    stopEngine();
+  }
 
   drawWorld();
   if (player.hp > 0) drawPlane(plane, planeRedSprite, '#843', '#c94');
