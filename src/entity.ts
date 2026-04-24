@@ -8,6 +8,7 @@
 import { createPlane, type PlaneState } from './physics';
 import { createCombatant, type Combatant } from './combat';
 import { createBotMemory, type BotMemory } from './bot';
+import { clearTrail } from './trails';
 
 export type Spawn = { x: number; y: number; angle: number; speed: number };
 
@@ -64,4 +65,6 @@ export function respawnFighter(f: Fighter): void {
   f.plane.angle = f.spawn.angle;
   f.plane.speed = f.spawn.speed;
   f.plane.onGround = false;
+  // Drop any stale trail so the new-life polyline starts fresh.
+  clearTrail(f.id);
 }
