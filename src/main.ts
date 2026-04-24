@@ -16,6 +16,8 @@ const planeRedSprite = new Image();
 planeRedSprite.src = './sprites/plane_red.png';
 const planeTealSprite = new Image();
 planeTealSprite.src = './sprites/plane_teal.png';
+const bombSprite = new Image();
+bombSprite.src = './sprites/bomb.png';
 bgm.volume = 0.4;
 let bgmStarted = false;
 function startBgm(): void {
@@ -260,7 +262,7 @@ function loop(now: number): void {
   drawWorld();
   if (player.hp > 0) drawPlane(plane, planeRedSprite, '#843', '#c94');
   if (botC.hp > 0) drawPlane(bot, planeTealSprite, '#348', '#4bc');
-  drawProjectiles(ctx);
+  drawProjectiles(ctx, bombSprite);
   drawParticles(ctx);
   drawHUD();
 

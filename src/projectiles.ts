@@ -119,15 +119,28 @@ export function updateProjectiles(dt: number): void {
   }
 }
 
-/** Draw all projectiles. Placeholder shapes — pixellab sprites will replace. */
-export function drawProjectiles(ctx: CanvasRenderingContext2D): void {
+/** Draw all projectiles. Pass `bombSprite` to use pixel art; falls back to rects. */
+export function drawProjectiles(ctx: CanvasRenderingContext2D, bombSprite?: HTMLImageElement): void {
   ctx.fillStyle = '#fff6a0';
   for (const b of bullets) {
     ctx.fillRect(b.x - 1, b.y - 1, 2, 2);
   }
-  ctx.fillStyle = '#444';
+  const spriteReady = bombSprite && bombSprite.complete && bombSprite.naturalWidth > 0;
   for (const bomb of bombs) {
-    ctx.fillRect(bomb.x - 2, bomb.y - 3, 4, 6);
+    if (spriteReady) {
+      const w = bombSprite!.naturalWidth;
+      const h = bombSprite!.naturalHeight;
+      // Rotate bomb sprite so its nose aligns with flight direction.
+      const angle = Math.atan2(bomb.vy, bomb.vx);
+      ctx.save();
+      ctx.translate(bomb.x, bomb.y);
+      ctx.rotate(angle);
+      ctx.drawImage(bombSprite!, -w / 2, -h / 2);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#444';
+      ctx.fillRect(bomb.x - 2, bomb.y - 3, 4, 6);
+    }
   }
 }
 
