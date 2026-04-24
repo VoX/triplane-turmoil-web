@@ -35,8 +35,12 @@ function startBgm(): void {
   bgm.play().then(() => { bgmStarted = true; }).catch(() => {});
   initAudio();
 }
-addEventListener('keydown', () => { startBgm(); resumeAudio(); });
-addEventListener('pointerdown', () => { startBgm(); resumeAudio(); });
+let titleVisible = true;
+addEventListener('keydown', () => { startBgm(); resumeAudio(); titleVisible = false; });
+addEventListener('pointerdown', () => { startBgm(); resumeAudio(); titleVisible = false; });
+
+let paused = false;
+addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'p') paused = !paused; });
 
 const GROUND_Y = canvas.height - 30;
 const PLAYER_ID = 0;
@@ -306,9 +310,43 @@ function drawHUD(): void {
   ctx.fillText('arrows: pitch | right=power | space/f=fire | shift/b=bomb', 10, canvas.height - 8);
 }
 
+function drawTitleOverlay(): void {
+  ctx.save();
+  ctx.fillStyle = '#000a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffcb47';
+  ctx.font = 'bold 32px monospace';
+  ctx.fillText('TRIPLANE TURMOIL', canvas.width / 2, canvas.height / 2 - 30);
+  ctx.fillStyle = '#fff';
+  ctx.font = '12px monospace';
+  ctx.fillText('arrows: pitch | right=throttle | space/f=fire | shift/b=bomb | esc=pause', canvas.width / 2, canvas.height / 2 + 6);
+  ctx.fillStyle = '#aaf';
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText('press any key to fly', canvas.width / 2, canvas.height / 2 + 36);
+  ctx.textAlign = 'start';
+  ctx.font = '10px monospace';
+  ctx.restore();
+}
+
+function drawPausedOverlay(): void {
+  ctx.save();
+  ctx.fillStyle = '#000a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 28px monospace';
+  ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2 - 8);
+  ctx.font = '11px monospace';
+  ctx.fillText('press esc or P to resume', canvas.width / 2, canvas.height / 2 + 18);
+  ctx.textAlign = 'start';
+  ctx.font = '10px monospace';
+  ctx.restore();
+}
+
 let last = performance.now();
 function loop(now: number): void {
-  const rawDt = Math.min(0.1, (now - last) / 1000);
+  const rawDt = paused ? 0 : Math.min(0.1, (now - last) / 1000);
   last = now;
   const dtSec = rawDt;
 
@@ -414,6 +452,8 @@ function loop(now: number): void {
   drawHUD();
   drawKillFeed();
   drawBanner();
+  if (titleVisible) drawTitleOverlay();
+  if (paused) drawPausedOverlay();
 
   requestAnimationFrame(loop);
 }
