@@ -472,6 +472,11 @@ function loop(now: number): void {
       pushKill(victim.name, nameForId(hit.shooterId));
       spawnExplosion(victim.plane.x, victim.plane.y, Math.cos(victim.plane.angle) * victim.plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(victim.plane.angle) * victim.plane.speed * PLANE_SPEED_TO_PXPS);
       sfxExplosion();
+      // Player death ends any current multi-kill streak.
+      if (victim.id === PLAYER_ID) {
+        playerKillTimes.length = 0;
+        bannerMessage = null;
+      }
     } else if (!victim.isHuman && victim.botMemory) {
       // Evade toward the shooter, not always the player.
       const shooter = fighters.find((x) => x.id === hit.shooterId);
