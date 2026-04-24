@@ -3,7 +3,7 @@ import { thinkBot, notifyBotDamage } from './bot';
 import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets, reapGroundedBombs } from './projectiles';
 import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
-import { spawnExplosion, updateParticles, drawParticles } from './vfx';
+import { spawnExplosion, updateParticles, drawParticles, seedVfx } from './vfx';
 import { initAudio, resumeAudio, sfxMGShot, sfxBombDrop, sfxExplosion, sfxHit, sfxEngine, stopEngine } from './sfx';
 import { takeDamage, tickRespawn, detectCrash, addKill, createScore, MAX_HP, PLANE_HITBOX_RADIUS } from './combat';
 import { createFighter, respawnFighter, type Fighter } from './entity';
@@ -41,6 +41,9 @@ const BOT_ID = 1;
 const BOT2_ID = 2;
 const FIRE_COOLDOWN_SEC = MG_SHOT_RATE / 60;
 const BOMB_COOLDOWN_SEC = 0.5;
+
+// Seed deterministic vfx PRNG (per-page-load seed; netcode will swap to world-id).
+seedVfx(Date.now() & 0xffffffff);
 
 const fighters: Fighter[] = [
   createFighter({
