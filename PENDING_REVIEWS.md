@@ -126,3 +126,95 @@ Scope: 295b5f7..HEAD (311690c projectiles, ba5f37d lift, 476748f bot v0, bc0b75c
 
 **Commit-msg vs diff**
 - INFO — All four messages match diffs.
+
+## 2026-04-24 03:05Z — Performance sweep #2
+
+New surfaces since #1: `collision.ts`, `background.ts`, bot-fire path in `main.ts`, bot cooldown.
+
+### HIGH
+- **background.ts:121-126** — `createLinearGradient` + 3 `addColorStop` every frame. Gradient object allocated + GC'd 60/s (~40-80 µs + steady churn). Fix: build once at module init, cache; re-create only on canvas resize. **Saves ~60 µs/frame + kills alloc.**
+- **background.ts:130-149** — loops over all ~25-40 shapes per layer every frame with `wrapX` running 2× `%` each. Cull is post-wrap so every shape pays full transform. Fix: precompute worldX ranges, skip entire layer with early bounds test, or hoist visible-shape list and refresh only when camera crosses a tile boundary. **~30-50 µs/frame at today's shape count.**
+- **collision.ts:22-34 + projectiles.ts:136** — `killBullet(i)` calls `splice` mid-reverse-loop while also incrementing outer `i--`; correct today but compounds the #1 HIGH at full pool. Swap-pop here too; 500 bullets × 2 planes worst case = ~1000 copies/frame now, ~O(n·p) with more planes.
+
+### MEDIUM
+- **main.ts:69-72,83-84,122-125** — 4 fire paths each compute `cos/sin(angle)` 2× + `speed*PLANE_SPEED_TO_PXPS`. Hoist `cosA, sinA, vx, vy` into `PlaneKinematics` cached on plane after `stepPlane`. Saves ~400 ns/plane/frame, scales with weapons.
+- **main.ts:188-200** — fresh `hitboxes: []` + `Map` every frame. Pre-allocate module-scope, `length=0` each tick; replace Map with 2-slot typed array keyed by ownerId.
+- **background.ts:86-96** — `drawCloud` uses `beginPath` per cloud + multi-arc. Batch all clouds into one path per layer (single `fill()`). 3-4× fewer path ops.
+
+### LOW
+- **bot.ts:27** — `Math.hypot(dx,dy)` every tick; squared-distance compare against `FIRE_RANGE²` avoids sqrt.
+- **main.ts:172** — `Math.min(32, now-last)/16.666` — precompute `1/16.666`.
+
+### Frame budget update (2 planes, ~30 bullets, bg on)
+Sim ~45 µs (+15 for collision), draw ~230 µs (+150 for bg gradient+shapes). Total ~275 µs = 1.6% of 16.67 ms budget. Bg dominates draw. Top 3: gradient cache, swap-pop everywhere (collision + projectiles), pre-alloc hitboxes/Map.
+
+## 2026-04-24 03:05Z — Security sweep #2
+
+Scope delta: `background.ts` (new), `bot.ts` bot-fire wiring, `main.ts` audio + bot-fire + background wiring, `vite.config.ts` (new `base='/triplane/'`), `index.html` audio src change.
+
+**Deploy path / subpath**
+- MEDIUM — `vite.config.ts:4` sets `base='/triplane/'` but built `dist/index.html` emits `<script src="/triplane/assets/...">` (absolute, rewritten) while `<audio>` stays `./audio/landing.mp3` (relative). If Caddy serves `dist/` with any trailing-slash redirect or nested route, audio resolves wrong and 404s; also defeats future CSP `media-src 'self'` path-locking. Fix: `index.html:14` back to `/audio/landing.mp3` so Vite rewrites it to `/triplane/audio/landing.mp3`, matching the script. Add a smoke-fetch of the mp3 post-deploy.
+- LOW — No `Content-Security-Policy` on deploy. Add at Caddy for `/triplane/*`: `default-src 'self'; media-src 'self'; img-src 'self' data:; script-src 'self'; connect-src 'self'`. Also `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy: geolocation=(), microphone=(), camera=()`.
+- INFO — Serve under HTTPS only (Caddy default on claw.bitvox.me) — satisfies secure-context reqs for any future WebRTC/gamepad/pointerlock.
+
+**Audio element**
+- INFO — `main.ts:10-18` `bgm.play()` gated behind user gesture with `.catch(() => {})`. No user-controlled URL, no XSS surface. Clean.
+- LOW — Hardcoded `bgm.volume=0.4`, no mute. Not a security issue; mitigated by gesture gate against hostile-embed abuse.
+
+**Bot fire path**
+- INFO — `main.ts:117-129` `tryBotFire` uses const `BOT_ID=1` + same muzzle math as player. No external input. Sweep #1 MEDIUM on global pool cap still stands (one shooter can starve others once N>1).
+
+**background.ts**
+- INFO — Pure Canvas2D draws, hardcoded `mulberry32` seeds, no DOM/fetch/eval. Clean.
+
+**Dependencies**
+- INFO — `npm audit`: same 2 moderate dev-only advisories (esbuild/vite). Unchanged.
+
+**Secrets**
+- INFO — No new env/token surface. `.gitignore` still excludes src *.js; 7 stale compiled .js remain on disk (cosmetic, not sec).
+
+## 2026-04-24 03:05Z — Architecture sweep #2
+
+Scope: 295b5f7..HEAD (+ bg, combat, bot-fire, audio, /triplane/ deploy). Sweep #1 BLOCKERs/HIGHs still open.
+
+**Regression tracker**
+- INFO — `.gitignore:src/**/*.js` (MEDIUM #1) resolved. Untracked compiled `.js` still on disk — `rm src/*.js` before vitest lands or resolver prefers them.
+- INFO — `ownerId` promoted to `main.ts:27-28` constants but still numeric. `PlayerId` type still owed for M3.
+- INFO — `drawPlane(p: typeof plane)` (#1 LOW) unresolved at `main.ts:90`.
+
+**New BLOCKER — Combat state fused into main.ts.** `main.ts:33-38` inline `Combatant`/HP/score; `main.ts:191-200` mutates HP + score in render tick. Third system glued to the DOM-entry module (after projectiles + plane physics). Extract `combat.ts` with pure `applyDamage(state, events): ScoreDelta` before lives/teams/rounds land — M3 server rewrite otherwise doubles.
+
+**New HIGH — `background.ts` world is module-scope singleton.** `background.ts:42-75` — `CLOUDS`/`MID_HILL_SHAPES`/`NEAR_HILL_SHAPES` pre-generated at import. Same anti-pattern as the open projectile-pool BLOCKER. Un-swappable per-match/per-seed. Wrap as `createBackground(seed): { draw(ctx, cam) }`; drive seed from match config.
+
+**New HIGH — Camera === `plane.x` (`main.ts:108`).** Breaks the moment a second human joins (whose plane?). `drawBackground` takes `cameraX` (good seam) but a `camera.ts` policy (centroid/leader/split-screen) is owed before M2.
+
+**New MEDIUM — Bot targets player by direct reference (`main.ts:180`, `thinkBot(bot, plane, …)`).** Sweep #1 LOW now load-bearing since bot fires at `plane`. `WorldView` snapshot owed before >1 bot or reconnection.
+
+**New MEDIUM — Audio is DOM-coupled singleton (`main.ts:10-18`).** `getElementById('bgm')` at module load; no `AudioSystem` seam. Bake `sound.ts(Event[])` before SFX (gunfire, explosions) so combat emits events instead of imperative `.play()`.
+
+**LOW — `stepCombatant` unused `_p` param (`main.ts:131`).** Dead signature.
+
+**INFO — `vite.config.ts:4 base='/triplane/'`** hard-codes subpath into the bundle — breaks at root or alt prefixes. Env-drive before a second deploy target.
+
+**Status:** 2 BLOCKERs + 3 HIGHs unchanged. New code actively deepens both BLOCKERs (combat joins fused pile; background adds second singleton). Recommend pausing features for sim/render split + vitest harness before M2.
+
+## 2026-04-24 03:05Z — Delta correctness sweep #2
+
+Scope: bc0b75c..c87252a (combat, audio, parallax+wire, vite-base, bot-fire, audio swaps). Wrong-logic / off-by-one / sign only; skipping issues caught by Perf/Sec/Arch #2.
+
+**Combat / respawn**
+- HIGH — `src/main.ts:57,73` `playerFireCooldown`/`bombDropCooldown` keep decrementing while `hp<=0` (the `Math.max(0,cd-dt)` runs before dead/onGround early-returns). Holding space through death = instant burst on respawn. Fix: reset cooldowns in `respawnPlane`, or gate the decrement behind `hp>0`.
+- MEDIUM — `src/collision.ts:20` `break` after first hit: one bullet can only damage one plane even if two overlap. Fine 1v1; intent call for 4-plane melees.
+- LOW — `src/main.ts:175` `dtSec = dt/60` where `dt = ms/16.666` → `ms/999.96`, off 0.004% vs real seconds. Cosmetic.
+
+**Parallax wrap**
+- HIGH — `src/background.ts:42-46` cull uses `peakX` only, ignoring shape width. A `width=420` hill with peak at `x=-300` paints to `x=-90`, inside viewport, but the `x < -400` cull (line 149) can drop it — edge-pop. Cull by `peakX ± width/2`.
+- MEDIUM — `cameraX = plane.x` (`main.ts:108`): on respawn plane teleports → background snaps ~540 px. Lerp or reset explicitly.
+
+**Input**
+- MEDIUM — `src/main.ts:39-47` `shiftDown = e.shiftKey` only updates on key events. Alt-tab with Shift held → keyup never fires → stuck true → bomb-spam on refocus. Clear on `blur`/`visibilitychange`.
+
+**Sign / off-by-one**
+- `bot.ts:41` fire predicate sign correct. Muzzle offsets (`main.ts:69-72,122-125`) all `+16` forward, consistent with facing. Parallax scroll `-cameraX*parallax` yields correct rightward-motion illusion. No sign bugs.
+
+**Commit-msg vs diff** — all match; 270e8f1 cleanly reverts 265e647, c87252a reapplies.

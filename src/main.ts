@@ -8,6 +8,11 @@ import { MG_SHOT_RATE } from './constants';
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 const bgm = document.getElementById('bgm') as HTMLAudioElement;
+
+const planeRedSprite = new Image();
+planeRedSprite.src = './sprites/plane_red.png';
+const planeTealSprite = new Image();
+planeTealSprite.src = './sprites/plane_teal.png';
 bgm.volume = 0.4;
 let bgmStarted = false;
 function startBgm(): void {
@@ -89,20 +94,22 @@ function tryPlayerBomb(dtSec: number): void {
   }
 }
 
-function drawPlane(p: typeof plane, bodyColor: string, wingColor: string): void {
+function drawPlane(p: typeof plane, sprite: HTMLImageElement, fallbackBody: string, fallbackWing: string): void {
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(p.angle);
-
-  ctx.fillStyle = wingColor;
-  ctx.fillRect(-14, -2, 28, 4);
-  ctx.fillStyle = bodyColor;
-  ctx.fillRect(-10, -7, 12, 14);
-  ctx.fillStyle = wingColor;
-  ctx.fillRect(-2, -5, 4, 10);
-  ctx.fillStyle = '#555';
-  ctx.fillRect(14, -1, 3, 2);
-
+  if (sprite.complete && sprite.naturalWidth > 0) {
+    ctx.drawImage(sprite, -sprite.naturalWidth / 2, -sprite.naturalHeight / 2);
+  } else {
+    ctx.fillStyle = fallbackWing;
+    ctx.fillRect(-14, -2, 28, 4);
+    ctx.fillStyle = fallbackBody;
+    ctx.fillRect(-10, -7, 12, 14);
+    ctx.fillStyle = fallbackWing;
+    ctx.fillRect(-2, -5, 4, 10);
+    ctx.fillStyle = '#555';
+    ctx.fillRect(14, -1, 3, 2);
+  }
   ctx.restore();
 }
 
@@ -203,8 +210,8 @@ function loop(now: number): void {
   }
 
   drawWorld();
-  if (player.hp > 0) drawPlane(plane, '#843', '#c94');
-  if (botC.hp > 0) drawPlane(bot, '#348', '#4bc');
+  if (player.hp > 0) drawPlane(plane, planeRedSprite, '#843', '#c94');
+  if (botC.hp > 0) drawPlane(bot, planeTealSprite, '#348', '#4bc');
   drawProjectiles(ctx);
   drawHUD();
 
