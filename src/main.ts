@@ -134,10 +134,43 @@ function tryFighterBomb(f: Fighter, drop: boolean, dtSec: number): void {
 type KillEvent = { message: string; born: number };
 const killFeed: KillEvent[] = [];
 const KILL_FEED_LIFE_SEC = 3.0;
+// Track recent player-kills for multi-kill announcements.
+let playerKillTimes: number[] = [];
+const MULTI_KILL_WINDOW_SEC = 4.0;
+let bannerMessage: { text: string; born: number } | null = null;
 function pushKill(victimName: string, killerName: string | null): void {
   const message = killerName ? `${killerName} downed ${victimName}` : `${victimName} crashed`;
   killFeed.push({ message, born: performance.now() / 1000 });
   while (killFeed.length > 5) killFeed.shift();
+  if (killerName === 'You') {
+    const now = performance.now() / 1000;
+    playerKillTimes = playerKillTimes.filter((t) => now - t < MULTI_KILL_WINDOW_SEC);
+    playerKillTimes.push(now);
+    const n = playerKillTimes.length;
+    const banner = n === 2 ? 'DOUBLE KILL!' : n === 3 ? 'TRIPLE KILL!' : n >= 4 ? 'RAMPAGE!' : null;
+    if (banner) bannerMessage = { text: banner, born: now };
+  }
+}
+
+function drawBanner(): void {
+  if (!bannerMessage) return;
+  const age = performance.now() / 1000 - bannerMessage.born;
+  if (age > 2.0) { bannerMessage = null; return; }
+  const alpha = age > 1.5 ? (2.0 - age) / 0.5 : 1;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = 'bold 24px monospace';
+  ctx.textAlign = 'center';
+  const x = canvas.width / 2;
+  const y = 100;
+  ctx.fillStyle = '#000c';
+  const w = ctx.measureText(bannerMessage.text).width + 20;
+  ctx.fillRect(x - w / 2, y - 20, w, 28);
+  ctx.fillStyle = '#ffcb47';
+  ctx.fillText(bannerMessage.text, x, y);
+  ctx.textAlign = 'start';
+  ctx.restore();
+  ctx.font = '10px monospace';
 }
 function drawKillFeed(): void {
   const now = performance.now() / 1000;
@@ -374,6 +407,7 @@ function loop(now: number): void {
   drawParticles(ctx);
   drawHUD();
   drawKillFeed();
+  drawBanner();
 
   requestAnimationFrame(loop);
 }
