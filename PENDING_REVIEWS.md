@@ -382,3 +382,73 @@ Scope: `ef8165f..d6055b5` — sfx, crash, combat extract, bomb/green/cloud/hill 
 - **projectiles.ts:134** — `atan2(vy,vx)` assumes bomb PNG nose at +x; confirm orientation.
 - **main.ts:303-305** — three stale comments describe a moved block. Delete.
 - **main.ts:189** — `stepCombatant` unused `_p`, third sweep flagging.
+
+## 2026-04-24 04:40Z — Performance sweep #5
+
+Net-new: HP bars + kill feed.
+
+### MEDIUM
+- **main.ts:114-122** — `drawHpBar` 2 `fillRect` + 2 `fillStyle`/plane. 3p ≈ 12 µs; 8p ≈ 40 µs. Batch by color bucket (backings, then fills) to halve state thrash.
+- **main.ts:127-130** — `ctx.measureText(k.message)` per entry per frame. 5 × 60fps = 300/sec (~5-15 µs each). Strings stable 3s. Cache `width` on push; draw becomes pure `fillText`. **Saves ~3 ms per feed lifetime.**
+- **main.ts:135** — `killFeed.splice(i,1)` mid-reverse-loop. Cosmetic at cap-5; same swap-pop pattern as projectile BLOCKER.
+
+### LOW
+- **main.ts:124,133** — `performance.now()/1000` twice per feed frame. Hoist once per tick.
+- **main.ts:118** — `Math.max(0, hp/MAX_HP)` redundant; clamped in `takeDamage`.
+
+### Frame budget (3p, ~45 bullets, bg, audio, HP+feed)
+Sim ~80, draw ~380 (+26 HP +14 measureText), audio ~30 µs. ~490 µs = 2.9% of 16.67 ms. Top 3 unchanged; add #4 cache feed widths. SLOs unchanged.
+
+## 2026-04-24 04:40Z — Architecture sweep #5
+
+Scope: `d6055b5..7b40784` (HP bars + kill feed inlined into `main.ts`; PRODUCT_PLAN promotes `Fighter[]` + per-world projectiles to P0).
+
+**Regression tracker**
+- VALIDATION — plan now lists `Fighter` entity + projectile-world as P0 #1/#2. Sweep #4's HIGH self-acknowledged as M2-blocking. Good.
+- UNRESOLVED — both BLOCKERs (sim/render fused, projectile singleton) + 5 prior HIGHs all open. Zero structural commits since #4.
+- REGRESSION — `main.ts` 310→378 LoC (+22%). HUD (kill feed + hp bar + score readout + crash msgs) is the fourth subsystem inlined alongside combat orchestration, sprite loading, BGM, render loop.
+
+**New HIGH — HUD is a fifth module-scope singleton.** `main.ts:114-115` `killFeed: KillEvent[]` at file scope (allocates, mutates, drains via `splice` in render). Joins projectiles, background, vfx, sfx as state that won't survive a `createWorld()` boundary. `pushKill` called from 6 sites in the loop, fanning the coupling. Extract `hud.ts` with `createHud(): { pushKill, drawFeed, drawHpBar }` before scoreboards/team colors land.
+
+**New HIGH — victim/killer identity stringly-typed at call sites.** `pushKill('You','Enemy')`/`'Teal'`/`'Green'` (`main.ts:323,330,339`) hard-codes display names into combat resolution. Sweep #4 HIGH about killer-id attribution now compounded — kill credit and feed labels are two parallel string maps. Owe `Fighter { id, displayName, color, ... }` (P0 #1) before this fans.
+
+**New MEDIUM — `drawHpBar` reads `MAX_HP` from combat to render** (`main.ts:146`). Couples render to combat constants; pass `hpPct` from caller.
+
+**LOW — `stepCombatant` unused `_p`** (`main.ts:229`) — fourth sweep flagging.
+
+**Status:** 2 BLOCKERs + 6 HIGHs (was 5). Plan promotion is right; feature inlining outpaces it. Hard pause on new HUD/render features until P0 #1+#2 land.
+
+## 2026-04-24 04:40Z — Security sweep #5
+
+Scope: `d6055b5..7b40784` — kill feed, HP bars, crash-attribution fix, plan refresh, cloud double-draw. `npm audit --omit=dev` 0 vulns (unchanged).
+
+**XSS / injection**
+- INFO — kill-feed strings (`main.ts:118`) are hardcoded literals (`'You'`/`'Teal'`/`'Green'`/`'Enemy'`); no user input reaches `fillText`. Canvas2D text is non-DOM, immune to script exec. When netcode lands and remote names enter `pushKill`, cap length, strip control chars / RTL overrides (U+202E etc.), reject non-printable before render.
+
+**Resource exhaustion**
+- INFO — `killFeed` capped at 5 via `while > 5 shift` (`main.ts:120`); 3s TTL prunes (`:128`). Bounded.
+- LOW — `ctx.measureText` (`main.ts:132`) cheap today; with future remote names becomes a CPU-burn vector via long unicode/combining strings. Cap message length at push.
+
+**Crash-attribution fix**
+- INFO — removing `addKill` on self-crash (`main.ts:295,301,307`) closes the score-spoof where suicide credited the bot. Correct per crash-authoritative rule from sweep #4.
+
+**Cloud double-draw / plan doc**
+- INFO — extra `drawImage` (`main.ts:191`) bounded (5 fixed × 2). `PRODUCT_PLAN.md` adds public live URL + commit ref, no secrets.
+
+**Carryovers:** sweep #4 sfx-throttle MEDIUM and bot2-name-string LOW remain open.
+
+## 2026-04-24 04:40Z — Delta correctness sweep #5
+
+Scope: 17e078d (HIGH-fix), 36e5a4c (plan), 9b5cf8d (HP bars), 7b40784 (kill feed).
+
+### HIGH
+- **main.ts:191** — Cloud double-draw on the **wrong side**. As `plane.x` grows (player flies right), `sx = (cx - plane.x*0.15) mod canvas.width` decreases and wraps `0 → canvas.width`. Fresh cloud enters at the **right** edge → seam-cover copy must be at `+canvas.width`, not `-canvas.width`. Current `sx - cw/2 - canvas.width` only covers the left-flying case. Pop still visible flying right (the dominant direction). Draw both sides (`±canvas.width`) or sign-pick by velocity.
+
+### MEDIUM
+- **main.ts:294-309** — Crash branch runs **before** `resolveBulletHits`. If a bullet kills a plane the same frame it crashes, `takeDamage(p, MAX_HP)` is no-op on a 0-hp plane but `pushKill('Teal', null)` still fires → duplicate "X crashed" + "You downed X" in feed. Guard each crash branch with `&& cmb.hp > 0` re-check, or reorder bullets-then-crashes. Also: HIGH-fix dropped self-crash attribution entirely; if scoreboard rules want suicide to count against the victim, that's now silent. Confirm intent.
+- **main.ts:128** — Cap-5 eviction uses `splice` with no fade. If a 6th kill lands within an entry's first 2.5s, the oldest pops out abruptly mid-display. Drop the cap (rely on 3s TTL) or fade-on-evict.
+- **main.ts:185** — `cloudPositions = [120, 380, 670, 950, 1280]` — `1280` may exceed canvas.width. Modulo wrap survives, but the magic numbers betray a stale wider-viewport assumption. Confirm.
+
+### LOW
+- **main.ts:117** — `KILL_FEED_LIFE_SEC = 3.0` consumed as seconds; matches commit msg.
+- **PRODUCT_PLAN.md** — doc-only, no correctness risk.

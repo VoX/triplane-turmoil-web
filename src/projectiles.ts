@@ -121,8 +121,21 @@ export function updateProjectiles(dt: number): void {
 
 /** Draw all projectiles. Pass `bombSprite` to use pixel art; falls back to rects. */
 export function drawProjectiles(ctx: CanvasRenderingContext2D, bombSprite?: HTMLImageElement): void {
-  ctx.fillStyle = '#fff6a0';
+  // Bullets render as short streaks aligned to velocity (poor man's tracer).
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 2;
   for (const b of bullets) {
+    const len = 6;
+    const speed = Math.hypot(b.vx, b.vy);
+    if (speed < 1) continue;
+    const ux = b.vx / speed;
+    const uy = b.vy / speed;
+    ctx.strokeStyle = '#ff9';
+    ctx.beginPath();
+    ctx.moveTo(b.x - ux * len, b.y - uy * len);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.fillStyle = '#fff6a0';
     ctx.fillRect(b.x - 1, b.y - 1, 2, 2);
   }
   const spriteReady = bombSprite && bombSprite.complete && bombSprite.naturalWidth > 0;
