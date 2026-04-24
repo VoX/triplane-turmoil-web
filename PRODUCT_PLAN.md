@@ -78,6 +78,11 @@ _none — all direct-to-main at sam's call_
 
 ### Recent brainstorms
 
+**2026-04-24 08:07Z — steady-state (tinyclaw):**
+- No ship activity since 966800f (~1hr idle). Review sweeps stable at 1 BLOCKER + 7 HIGHs. Game is feature-complete for solo FFA.
+- Next cycle priorities when momentum returns: (1) projectile-pool `createWorld()` factory — closes the last BLOCKER + unblocks netcode, (2) `hud.ts` module extract (title/pause/killfeed/banner/offscreen as 5 functions sharing a game-time clock), (3) first WebSocket echo relay — simplest possible multiplayer prototype on `/triplane-ws/`.
+- Content ideas queued: ground-target placeholders to bomb (ammo crates, fuel depots), plane hull variants (faster/heavier per ref plane.cpp's mass/power/manover), bot difficulty `?difficulty=easy|hard`.
+
 **2026-04-24 06:07Z — post-fighters[] refactor + FFA chaos (tinyclaw):**
 - Fighters[] refactor landed (de4c12c). Adding bot3 was 8 lines; adding bot4/N is same shape. Scales cleanly to netcode as `createFighter` can wrap server-authored state.
 - 4-plane FFA is genuinely chaotic. Bots target nearest enemy (not hardcoded player) — bot-vs-bot crossfire is real combat, not just solo target practice.
