@@ -219,6 +219,23 @@ function loop(now: number): void {
   const hitboxes: PlaneHitbox[] = [];
   if (player.hp > 0) hitboxes.push({ plane, ownerId: PLAYER_ID, radius: PLANE_HITBOX_RADIUS });
   if (botC.hp > 0) hitboxes.push({ plane: bot, ownerId: BOT_ID, radius: PLANE_HITBOX_RADIUS });
+  // Crash-on-ground: plane hitting terrain at speed > CRASH_SPEED dies.
+  const CRASH_SPEED = 5.0;
+  if (player.hp > 0 && plane.onGround && plane.speed > CRASH_SPEED) {
+    player.hp = 0;
+    player.respawnTimer = RESPAWN_SEC;
+    score.bot++;
+    spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, 0);
+    sfxExplosion();
+  }
+  if (botC.hp > 0 && bot.onGround && bot.speed > CRASH_SPEED) {
+    botC.hp = 0;
+    botC.respawnTimer = RESPAWN_SEC;
+    score.player++;
+    spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, 0);
+    sfxExplosion();
+  }
+
   const damage = resolveBulletHits(hitboxes);
   for (const [target, dmg] of damage) {
     if (target === PLAYER_ID) {
