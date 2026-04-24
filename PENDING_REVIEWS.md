@@ -647,3 +647,64 @@ Scope: `6143d61..b9c7f22` — HitRecord[], multi-kill banners, wind module+wire,
 **New MEDIUM — multi-kill leaks cross-match.** `playerKillTimes`/`bannerMessage` never reset on respawn; `pushKill` string-matches `'You'` not `shooterId===PLAYER_ID` — regresses 6c1b91f.
 
 **Status:** 1 BLOCKER + 6 HIGHs (was 1+4). Ship `ProjectileWorld` + `hud.ts`/`ui.ts` next.
+
+## 2026-04-24 06:40Z — Security sweep #9
+
+Scope: 1c96b70 (pause/title/score/arrow), 30f02a2 (streak reset). `npm audit` = 2 moderate, carryover.
+
+### MEDIUM
+- **main.ts:156,160** — `pushKill` still string-matches `killerName==='You'` to credit multi-kill; any future fighter named `'You'` (remote player label) fakes player streak. Gate on `shooterId===PLAYER_ID`.
+- **main.ts:478** — streak reset only on bullet-kill path; crash/bomb-splash self-death leaves `playerKillTimes` intact. Centralize in `takeDamage` or gate all death sites.
+
+### LOW
+- **main.ts:52,400** — `gameTime` monotonic float, no reset on respawn/world-reset; long idle drifts precision but non-exploitable.
+
+### INFO
+- No new input/network/storage surfaces. Pause-gate on `titleVisible` closes keydown race.
+
+## 2026-04-24 06:40Z — Architecture sweep #9
+
+Scope: `b9c7f22..HEAD` + `trails.ts` net-new. Polish-tier; zero progress on owed `ProjectileWorld`/`hud.ts`/`ui.ts`.
+
+**Tracker**
+- WIN — `gameTime` accumulator (`main.ts:50,399`) closes #8 pause-leak MED on kill-feed/banner TTLs.
+- WIN — multi-kill + banner reset on PLAYER_ID death (`main.ts:475-479`) closes #8 streak-bleed MED.
+- WIN — FFA score fold `BOT+BOT2+BOT3` (`main.ts:350`) patches #8 HUD hardcode.
+- UNRESOLVED — projectile BLOCKER, wind/HUD singletons, sim/render fuse untouched.
+
+**New HIGH — `trails.ts` = singleton #7.** Module-scope `Map<id,TrailState>` (`trails.ts:28`) mirrors wind/vfx/bg/sfx/HUD. `clearTrail` exported but NOT wired to `respawnFighter`. Scaffold `createTrails()` before netcode.
+
+**New MEDIUM — `pushKill` still string-matches `'You'`** (`main.ts:159`). Reset at :475 uses `id===PLAYER_ID`; detection didn't migrate. Two truths.
+
+**Status:** 1 BLOCKER + 7 HIGHs. Freeze features; ship `ProjectileWorld`.
+
+## 2026-04-24 06:40Z — Performance sweep #9
+
+Net-new: `trails.ts` + wire (0cb5e08); `gameTime` clock; pause-aware TTLs.
+
+### HIGH
+- **trails.ts:84-95** — per-segment `beginPath/moveTo/lineTo/stroke` + alpha/width/strokeStyle writes. 4p×19 = 76 draws/frame, ~300-380 µs. Same batch-by-alpha pattern as wind HIGH #8 / tracers HIGH #6. Bucket 4 alpha tiers, one path/stroke each.
+- **trails.ts:55** — `samples.shift()` O(n) each sample; ring buffer w/ head index.
+
+### MEDIUM
+- **main.ts:505** — trails drawn AFTER planes; docstring says before. Overlays noses. Move above `drawPlane` loop.
+
+### Frame budget (4p, trails on)
+Sim ~115, draw ~1060 (+350 trails), audio ~35. ~1210 µs = 7.3% of 16.67 ms. **Top 3:** alpha-bucket trails, ring buffer, fix draw order. SLOs unchanged.
+
+## 2026-04-24 06:40Z — Delta correctness sweep #9
+
+Scope: 410d422, b9c7f22, 1c96b70, 30f02a2. Targets #8 HIGHs.
+
+### HIGH
+- **main.ts:40-48** — pause-gate broken by listener order. `keydown` at :40 flips `titleVisible=false` BEFORE :44 reads it; ESC on title still boots paused. #8 HIGH regresses. Fold both into one handler.
+- **main.ts:441-446, 452-459** — streak reset wired only to bullet-hit path (:477). Bomb-splash + crash self-death leave `playerKillTimes`/`bannerMessage` live. Commit claim `takeDamage` covers it is wrong. Centralize in `onFighterDeath(id)`.
+
+### MEDIUM
+- **main.ts:159** — `pushKill` still name-matches `'You'`; reset uses `id===PLAYER_ID`. Two truths (carryover #8).
+- **main.ts:351** — score sums BOT/BOT2/BOT3 hardcoded; 4th bot invisible. Iterate `fighters.filter(!isHuman)`.
+
+### LOW
+- **main.ts:206-210** — arrow inset 4 px (good). Ray-clamp assumes symmetric viewport; OK for now.
+
+**Status:** both #8 HIGHs un-fixed despite commit claims. Re-open.

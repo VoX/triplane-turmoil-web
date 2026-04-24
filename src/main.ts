@@ -37,15 +37,17 @@ function startBgm(): void {
   initAudio();
 }
 let titleVisible = true;
-addEventListener('keydown', () => { startBgm(); resumeAudio(); titleVisible = false; });
-addEventListener('pointerdown', () => { startBgm(); resumeAudio(); titleVisible = false; });
-
 let paused = false;
+// Single keydown listener reads titleVisible BEFORE hiding it so ESC on
+// title doesn't race into paused=true on the same dispatch.
 addEventListener('keydown', (e) => {
-  // ESC on title screen just hides title, doesn't enter pause.
-  if (titleVisible) return;
-  if (e.key === 'Escape' || e.key === 'p') paused = !paused;
+  startBgm();
+  resumeAudio();
+  const wasOnTitle = titleVisible;
+  titleVisible = false;
+  if (!wasOnTitle && (e.key === 'Escape' || e.key === 'p')) paused = !paused;
 });
+addEventListener('pointerdown', () => { startBgm(); resumeAudio(); titleVisible = false; });
 
 // Game-time clock that stops when paused, so kill-feed/banner TTLs don't burn
 // while looking at pause overlay.
@@ -153,16 +155,20 @@ const KILL_FEED_LIFE_SEC = 3.0;
 let playerKillTimes: number[] = [];
 const MULTI_KILL_WINDOW_SEC = 4.0;
 let bannerMessage: { text: string; born: number } | null = null;
-function pushKill(victimName: string, killerName: string | null): void {
+function pushKill(victimName: string, killerName: string | null, victimId?: number, killerId?: number): void {
   const message = killerName ? `${killerName} downed ${victimName}` : `${victimName} crashed`;
   killFeed.push({ message, born: gameTime });
   while (killFeed.length > 5) killFeed.shift();
-  if (killerName === 'You') {
+  if (killerId === PLAYER_ID && victimId !== PLAYER_ID) {
     playerKillTimes = playerKillTimes.filter((t) => gameTime - t < MULTI_KILL_WINDOW_SEC);
     playerKillTimes.push(gameTime);
     const n = playerKillTimes.length;
     const banner = n === 2 ? 'DOUBLE KILL!' : n === 3 ? 'TRIPLE KILL!' : n >= 4 ? 'RAMPAGE!' : null;
     if (banner) bannerMessage = { text: banner, born: gameTime };
+  }
+  if (victimId === PLAYER_ID) {
+    playerKillTimes.length = 0;
+    bannerMessage = null;
   }
 }
 
@@ -442,7 +448,7 @@ function loop(now: number): void {
           spawnExplosion(f.plane.x, f.plane.y, 0, 0);
           sfxExplosion();
           if (hit.ownerId !== f.id) addKill(score, hit.ownerId);
-          pushKill(f.name, nameForId(hit.ownerId));
+          pushKill(f.name, nameForId(hit.ownerId), f.id, hit.ownerId);
         }
       }
     }
@@ -455,7 +461,7 @@ function loop(now: number): void {
     takeDamage(f.combatant, MAX_HP);
     spawnExplosion(f.plane.x, f.plane.y, Math.cos(f.plane.angle) * f.plane.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
-    pushKill(f.name, null);
+    pushKill(f.name, null, f.id, undefined);
   }
 
   // Bullet hits.
@@ -470,14 +476,10 @@ function loop(now: number): void {
     if (!victim) continue;
     if (takeDamage(victim.combatant, hit.damage)) {
       addKill(score, hit.shooterId);
-      pushKill(victim.name, nameForId(hit.shooterId));
+      pushKill(victim.name, nameForId(hit.shooterId), victim.id, hit.shooterId);
       spawnExplosion(victim.plane.x, victim.plane.y, Math.cos(victim.plane.angle) * victim.plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(victim.plane.angle) * victim.plane.speed * PLANE_SPEED_TO_PXPS);
       sfxExplosion();
-      // Player death ends any current multi-kill streak.
-      if (victim.id === PLAYER_ID) {
-        playerKillTimes.length = 0;
-        bannerMessage = null;
-      }
+      // (streak reset now centralized in pushKill by victimId)
     } else if (!victim.isHuman && victim.botMemory) {
       // Evade toward the shooter, not always the player.
       const shooter = fighters.find((x) => x.id === hit.shooterId);
