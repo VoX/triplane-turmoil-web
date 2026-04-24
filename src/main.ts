@@ -236,6 +236,19 @@ function nameForId(id: number): string {
   return f ? f.name : `#${id}`;
 }
 
+function pickNearestEnemy(self: Fighter): Fighter | null {
+  let best: Fighter | null = null;
+  let bestD2 = Infinity;
+  for (const other of fighters) {
+    if (other.id === self.id || other.combatant.hp <= 0) continue;
+    const dx = other.plane.x - self.plane.x;
+    const dy = other.plane.y - self.plane.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) { bestD2 = d2; best = other; }
+  }
+  return best;
+}
+
 function drawHUD(): void {
   ctx.fillStyle = '#fff';
   ctx.font = '10px monospace';
@@ -268,8 +281,10 @@ function loop(now: number): void {
   for (const f of fighters) {
     if (tickRespawn(f.combatant, dtSec)) respawnFighter(f);
     if (f.combatant.hp <= 0) continue;
-    const target = fighters[0]; // bots target the player for now
-    const input = f.isHuman ? readInput() : thinkBot(f.plane, target.plane, f.botMemory!, dtSec);
+    const target = f.isHuman ? null : pickNearestEnemy(f);
+    const input = target
+      ? thinkBot(f.plane, target.plane, f.botMemory!, dtSec)
+      : readInput();
     stepPlane(f.plane, input, dtSec, GROUND_Y);
   }
   // Fire/bomb input per fighter.
