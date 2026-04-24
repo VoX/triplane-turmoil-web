@@ -237,3 +237,69 @@ Net-new surfaces: `vfx.ts`, `physics.ts` rewrite (variable-dt floats), `physics.
 
 ### Frame budget update (2 planes, 30 bullets, bg, 30 particles mid-death)
 Sim ~55 µs, draw ~260 µs (+30 vfx), total ~315 µs = 1.9% of 16.67 ms. Death-frame spike: +300-500 µs GC = survivable now, hitch-risk at 8p. **Top 3:** vfx pool, drag fast-path, hitbox/Map pre-alloc (#2 carryover). SLOs unchanged.
+
+## 2026-04-24 03:40Z — Architecture sweep #3
+
+Scope: c87252a..74a3c2b (physics rewrite, vfx module, bot v2 evasion, sprites, vitest harness). Priors recap: 2 BLOCKERs (sim/render fused, projectile-pool singleton) + 3 HIGHs (mixed time units, variable dt, no tests) still open from #1; #2 added combat-fused + background-singleton + camera-is-plane.x HIGHs.
+
+**Regression tracker**
+- PROGRESS — HIGH #1 "no test runner" resolved. `vitest 4.1.5` wired, `physics.test.ts` (4 tests) + `ai-vs-ai.test.ts` (1 e2e) pass.
+- PROGRESS — HIGH #1 "mixed time units" partially resolved: `physics.ts:10` now explicitly seconds. `PLANE_SPEED_TO_PXPS=60` fudge still lives at `main.ts:49`, `projectiles.ts` still frame-life units (`projectiles.ts:26`). Not fully unified.
+- REGRESSION — MEDIUM "stale `.js` in src/" back; all 10 modules have shadow `.js`. vitest resolver with `.ts` first is OK **today**, but e2e test importing `./projectiles` from a compiled `.js` will prefer `.js`. `rm src/*.js` + add to `.gitignore` before more test growth.
+- UNRESOLVED — BLOCKER #1 (sim/render fused): `main.ts:9-10,118,225-228` still DOM-coupled at import. No `world.ts` / `render.ts` split.
+- UNRESOLVED — BLOCKER #2 (projectile pool singleton): `projectiles.ts:47-48` unchanged.
+- UNRESOLVED — #2 BLOCKER combat-in-main (`main.ts:33-42,199-221`), HIGH bg singleton, HIGH camera=plane.x.
+
+**New HIGH — VFX is a third module-scope singleton.** `vfx.ts:14` file-scope `particles: Particle[]`. Same anti-pattern as projectiles + background. Now three parallel worlds to thread through rollback. Wrap as `createVfxWorld(): { spawn, update, draw }`.
+
+**New HIGH — Tests validate the singleton pile.** `ai-vs-ai.test.ts:42` calls `getBullets()` global + `killBullet(i)` global. The e2e only works *because* both "fighters" share one bullet pool. This cements the BLOCKER — future refactor breaks the one test proving bots dogfight.
+
+**New MEDIUM — Sprite load is fire-and-forget at module scope (`main.ts:13-16`).** No onload tracking, no "assets ready" gate. Render uses `sprite.complete && naturalWidth>0` fallback which is fine today; pre-M2 add an `AssetLoader` with Promise.all so title/ready state can await.
+
+**New MEDIUM — Bot memory is implicit global state.** `main.ts:31` single `botMem`. No `Bot` class/factory keyed by id. Second bot needs copy-paste.
+
+**LOW — `stepCombatant` still has unused `_p` (`main.ts:142`).** Unchanged from #2.
+
+**Status:** 2 BLOCKERs + 4 HIGHs open (new vfx singleton + test cements coupling). Tests are the right move but validate the wrong shape — refactor before adding more coverage or you'll fossilize the globals.
+
+## 2026-04-24 03:40Z — Security sweep #3
+
+Scope delta: `vitest ^4.1.5` (new devDep), `src/{physics,ai-vs-ai}.test.ts` (new), `src/vfx.ts` (new), `src/bot.ts` evasion rewrite, pixellab sprite PNGs in `public/sprites/`, sergiou87 physics port.
+
+**Dependencies**
+- LOW — `package.json:16` vitest ^4.1.5 pulls transitive `tinypool`, `tinyrapid`, `@vitest/*` chain; `npm audit` still reports the same 2 moderate advisories (esbuild/vite), no new CVEs introduced. Keep `vitest run` dev-only; never expose test UI (`vitest --ui`) publicly.
+
+**Untrusted asset loading (pixellab)**
+- LOW — `main.ts:13-16` loads `./sprites/plane_*.png` by relative path — same subpath bug as sweep #2 audio (`base='/triplane/'` rewrites absolute but not relative consistently; under `/triplane/` subpath it happens to resolve, but drop-in re-host breaks). Switch to `/sprites/plane_red.png` so Vite base-rewrites it.
+- INFO — PNGs (64×64 RGBA, <2KB each) verified clean PNG via `file`. No EXIF/ICC metadata scanning performed; pixellab output is trusted enough for client-side canvas, but if asset pipeline ever accepts user-supplied sprites, run `oxipng --strip all` + MIME sniff server-side.
+- LOW — No `crossorigin` attr on `new Image()` loads. Fine today (same-origin), but once sprites move to a CDN, `getImageData`/`toDataURL` from canvas will taint. Set `img.crossOrigin='anonymous'` + CDN CORS now to avoid retrofit.
+
+**Test harness**
+- INFO — `src/ai-vs-ai.test.ts` + `src/physics.test.ts` import pure modules only, no DOM/network. `main.ts:9,11` still imports `document.getElementById` at module top — tests avoid it by not importing main. Guard: don't add re-exports from main.ts or tests break under jsdom-free env.
+
+**VFX RNG**
+- INFO — `vfx.ts:21-29` uses `Math.random()` for particle spread. Cosmetic-only (no physics/damage impact). When netcode lands, either keep VFX client-local (recommended) or seed from match RNG; do NOT let it drift into damage rolls.
+
+**Bot evasion**
+- INFO — `bot.ts:32-46` `notifyBotDamage` is pure state mutation, no external input. Clean.
+
+**Stale `.js` regression**
+- LOW — 10 compiled `.js` (incl. `vfx.js`, `ai-vs-ai.test.js`) still in `src/`. `.gitignore`'d but on disk; vitest may prefer `.js` over `.ts`. `rm src/*.js` now.
+
+## 2026-04-24 03:40Z — Delta correctness sweep #3
+
+Scope: `1bb609e..74a3c2b` — physics rewrite, vfx, sprites, bot v2, vitest.
+
+### HIGH
+- **physics.ts:129** — turn-speed-cost is dimensionally scrambled. Intent: `speed -= initial_turn/100` per 70Hz tick (~0.175 float/sec at stall). Actual: `turnRate*TICK_HZ*dtSec*0.01*(180/π)/TICK_HZ` ≈ 0.0075/sec, ~23× under. Turning is effectively free. Drop the TICK_HZ pair and rad→deg.
+- **physics.ts:160-164** — at zero speed, `fallPerSec=(1000+200)*FALL_SCALE*TICK_HZ≈2860 px/sec`; cruise `movePerSec=speed*60` tops ~600. FALL_SCALE bakes TICK_HZ (70/8/256) then gets `*dtSec` downstream — double-applied. Planes fall 5-7× faster than fly. Drop TICK_HZ from scale or divide by 60 to match pixel basis.
+
+### MEDIUM
+- **physics.test.ts:22 (cruise)** — speed=6.0 → `6*256>1200` threshold → `fallPerSec=0` by construction. Passes trivially, doesn't validate lift. Need `stall*1.2` case.
+- **physics.test.ts:39 (turn)** — slow=STALL_SPEED exactly; drag pushes below stall in ~400ms, divisor branch gates on `≥stall` so slow gets full turnRate for the wrong reason. Set both throttled, slow=stall+0.5.
+- **ai-vs-ai.test.ts** — no respawn exercised; 1bb609e cooldown-zero fix has zero regression coverage. Add kill→wait→assert-no-burst.
+- **bot.ts:27-29** — "perpendicular to attacker" comment misleading; evadeAngle is perp to line-to-target in world frame.
+
+### LOW
+- **physics.ts:114** — "radians per tick" stale; STALL_DRIFT bakes dtSec·TICK_HZ.
+- **74a3c2b msg** — claims stale `.js` fixed; 10 still on disk per Security #3. `rm` not run.

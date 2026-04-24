@@ -5,6 +5,7 @@ import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
 import { spawnExplosion, updateParticles, drawParticles } from './vfx';
 import { initAudio, resumeAudio, sfxMGShot, sfxBombDrop, sfxExplosion, sfxHit, sfxEngine, stopEngine } from './sfx';
+import { createCombatant, takeDamage, tickRespawn, detectCrash, addKill, createScore, MAX_HP, PLANE_HITBOX_RADIUS } from './combat';
 import { MG_SHOT_RATE } from './constants';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -35,13 +36,9 @@ const botMem = createBotMemory(GROUND_Y);
 const PLAYER_ID = 0;
 const BOT_ID = 1;
 const FIRE_COOLDOWN_SEC = MG_SHOT_RATE / 60;
-const PLANE_HITBOX_RADIUS = 14;
-const MAX_HP = 100;
-const RESPAWN_SEC = 2.0;
-type Combatant = { hp: number; respawnTimer: number };
-const player: Combatant = { hp: MAX_HP, respawnTimer: 0 };
-const botC: Combatant = { hp: MAX_HP, respawnTimer: 0 };
-const score = { player: 0, bot: 0 };
+const player = createCombatant(PLAYER_ID);
+const botC = createCombatant(BOT_ID);
+const score = createScore();
 let playerFireCooldown = 0;
 let bombDropCooldown = 0;
 const BOMB_COOLDOWN_SEC = 0.5;
@@ -153,13 +150,8 @@ function tryBotFire(dtSec: number): void {
   }
 }
 
-function stepCombatant(c: Combatant, _p: typeof plane, dtSec: number, respawn: () => void): void {
-  if (c.hp > 0) return;
-  c.respawnTimer -= dtSec;
-  if (c.respawnTimer <= 0) {
-    c.hp = MAX_HP;
-    respawn();
-  }
+function stepCombatant(c: Parameters<typeof tickRespawn>[0], _p: typeof plane, dtSec: number, respawn: () => void): void {
+  if (tickRespawn(c, dtSec)) respawn();
 }
 
 function respawnPlane(p: typeof plane, x: number, y: number, angle: number): void {
@@ -183,7 +175,7 @@ function drawHUD(): void {
   ctx.fillStyle = player.hp > 50 ? '#7f7' : player.hp > 20 ? '#fc4' : '#f55';
   ctx.fillText(`hp ${player.hp}`, 10, 62);
   ctx.fillStyle = '#fff';
-  ctx.fillText(`score  you ${score.player} : ${score.bot} bot`, canvas.width - 160, 14);
+  ctx.fillText(`score  you ${score.kills.get(PLAYER_ID) ?? 0} : ${score.kills.get(BOT_ID) ?? 0} bot`, canvas.width - 160, 14);
   if (player.hp <= 0) {
     ctx.fillStyle = '#f55';
     ctx.fillText(`respawn in ${player.respawnTimer.toFixed(1)}s`, canvas.width / 2 - 40, canvas.height / 2);
@@ -219,40 +211,32 @@ function loop(now: number): void {
   const hitboxes: PlaneHitbox[] = [];
   if (player.hp > 0) hitboxes.push({ plane, ownerId: PLAYER_ID, radius: PLANE_HITBOX_RADIUS });
   if (botC.hp > 0) hitboxes.push({ plane: bot, ownerId: BOT_ID, radius: PLANE_HITBOX_RADIUS });
-  // Crash-on-ground: plane hitting terrain at speed > CRASH_SPEED dies.
-  const CRASH_SPEED = 5.0;
-  if (player.hp > 0 && plane.onGround && plane.speed > CRASH_SPEED) {
-    player.hp = 0;
-    player.respawnTimer = RESPAWN_SEC;
-    score.bot++;
+  // Crash-on-ground
+  if (player.hp > 0 && detectCrash(plane)) {
+    takeDamage(player, MAX_HP);
+    addKill(score, BOT_ID);
     spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
   }
-  if (botC.hp > 0 && bot.onGround && bot.speed > CRASH_SPEED) {
-    botC.hp = 0;
-    botC.respawnTimer = RESPAWN_SEC;
-    score.player++;
+  if (botC.hp > 0 && detectCrash(bot)) {
+    takeDamage(botC, MAX_HP);
+    addKill(score, PLAYER_ID);
     spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, 0);
     sfxExplosion();
   }
 
   const damage = resolveBulletHits(hitboxes);
   for (const [target, dmg] of damage) {
+    sfxHit();
     if (target === PLAYER_ID) {
-      player.hp = Math.max(0, player.hp - dmg);
-      sfxHit();
-      if (player.hp === 0) {
-        player.respawnTimer = RESPAWN_SEC;
-        score.bot++;
+      if (takeDamage(player, dmg)) {
+        addKill(score, BOT_ID);
         spawnExplosion(plane.x, plane.y, Math.cos(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS, Math.sin(plane.angle) * plane.speed * PLANE_SPEED_TO_PXPS);
         sfxExplosion();
       }
     } else if (target === BOT_ID) {
-      botC.hp = Math.max(0, botC.hp - dmg);
-      sfxHit();
-      if (botC.hp === 0) {
-        botC.respawnTimer = RESPAWN_SEC;
-        score.player++;
+      if (takeDamage(botC, dmg)) {
+        addKill(score, PLAYER_ID);
         spawnExplosion(bot.x, bot.y, Math.cos(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS, Math.sin(bot.angle) * bot.speed * PLANE_SPEED_TO_PXPS);
         sfxExplosion();
       } else {
