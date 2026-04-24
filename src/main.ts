@@ -4,6 +4,7 @@ import { fireMG, dropBomb, updateProjectiles, drawProjectiles, getBullets, reapG
 import { resolveBulletHits, type PlaneHitbox } from './collision';
 import { drawBackground } from './background';
 import { spawnExplosion, updateParticles, drawParticles, seedVfx } from './vfx';
+import { seedWind, updateWind, drawWind } from './wind';
 import { initAudio, resumeAudio, sfxMGShot, sfxBombDrop, sfxExplosion, sfxHit, sfxEngine, stopEngine } from './sfx';
 import { takeDamage, tickRespawn, detectCrash, addKill, createScore, MAX_HP, PLANE_HITBOX_RADIUS } from './combat';
 import { createFighter, respawnFighter, type Fighter } from './entity';
@@ -47,6 +48,7 @@ const BOMB_COOLDOWN_SEC = 0.5;
 
 // Seed deterministic vfx PRNG (per-page-load seed; netcode will swap to world-id).
 seedVfx(Date.now() & 0xffffffff);
+seedWind((Date.now() ^ 0xa7b3c5d1) & 0xffffffff, 400);
 
 const fighters: Fighter[] = [
   createFighter({
@@ -385,6 +387,7 @@ function loop(now: number): void {
     }
   }
   updateParticles(dtSec);
+  updateWind(dtSec);
 
   // Engine sfx follows the player plane.
   if (player.hp > 0 && !plane.onGround) {
@@ -399,6 +402,7 @@ function loop(now: number): void {
     drawPlane(f.plane, f.sprite, f.fallbackBody, f.fallbackWing);
     drawHpBar(f.plane.x, f.plane.y - 26, f.combatant.hp);
   }
+  drawWind(ctx, canvas.width, canvas.height, plane.x);
   drawProjectiles(ctx, bombSprite);
   drawParticles(ctx);
   drawHUD();

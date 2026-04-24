@@ -561,3 +561,18 @@ Scope: `42c1704..6143d61` — `fighters[]` landed (de4c12c), bot3 purple (aa14b8
 - UNRESOLVED — sim/render fused (`main.ts:12-14`), variable dt (`:276`), bg/sfx/vfx module singletons, HUD inlined, bullet→killer attribution (`main.ts:344` TODO).
 
 **Status:** 1 BLOCKER + 4 HIGHs (was 2+6). Debt trajectory finally inverted. Ship projectile-world next, then fixed-step — netcode unblocks.
+
+## 2026-04-24 05:40Z — Delta correctness sweep #7
+
+Scope: de4c12c (fighters[]), 7faea80 (seedVfx), aa14b8d (bot3), 6143d61 (nearest-enemy).
+
+### HIGH
+- **main.ts:388** — `notifyBotDamage(f.plane, fighters[0].plane, f.botMemory)` still hardcodes the **player** as the evade reference. thinkBot now re-targets nearest (`:317`), but a bot shot by another bot evades perpendicular to the player, not its attacker — movement contradicts targeting. Regression of 6143d61's intent. Plumb the shooter via `resolveBulletHits` damage tuple (or look up via last-hit bullet) and pass its plane here.
+- **main.ts:382** — `addKill(score, PLAYER_ID)` on every non-human death regardless of shooter. With bot3 live and bots crossfire-ing, idle spectating farms your scoreboard. Matches the `:377` TODO; flagged as correctness because the score is now observably wrong in 4p.
+
+### MEDIUM
+- **main.ts:350** — Bomb splash `pushKill(f.name, nameForId(hit.ownerId))` lacks a self-kill gate. Own-bomb suicide renders "You downed You" in feed; `addKill` is correctly skipped at `:349` but text isn't. Pass `null` killer when `hit.ownerId===f.id`.
+- **main.ts:317** — `pickNearestEnemy` returns `null` when a bot is last-alive; fallthrough feeds `readInput()` into that bot's plane — it starts reading the human's keys. Latent today, fires on any round-end.
+
+### LOW
+- **main.ts:80-82** — `botMemory!` + post-construct `targetAltitude` writes; fold `spawnAltitude` into `CreateFighterOpts` so construction is atomic.
