@@ -5,3 +5,6 @@ dist/
 .env.local
 *.log
 .vite/
+*.tsbuildinfo
+src/**/*.js
+src/**/*.js.map
